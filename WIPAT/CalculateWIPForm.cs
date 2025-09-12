@@ -292,7 +292,7 @@ namespace WIPAT
                 _busyHelper.ShowBusy("Build WIP DataTable...");
 
                 var tableResponse = await Task.Run(() =>
-                    wipManager.BuildCommonWipDataTable(
+                    wipManager.nBuildCommonWipDataTable(
                         _session.AsinList,
                         _session.Prev,
                         _session.Curr,
@@ -502,7 +502,6 @@ namespace WIPAT
             return res;
         }
 
-        // === UPDATED: cached preview window; rebinds instead of closing/disposing ===
         private void ShowWipTable(DataTable stockTable, string targetMonth)
         {
             try
@@ -668,11 +667,6 @@ namespace WIPAT
         }
 
 
-        // Map "approved" value from FinalDataTable back into the visible month grid
-        // Match by: C-ASIN + Requested Quantity + Commitment period + PO Date
-       // Update ONLY the current forecast grid by cloning its DataTable first
-    
-        // Clone the current forecast grid's table, fill WIP from FinalDataTable, and swap it in.
         private void UpdateCurrentForecastGridWithApprovedWip()
         {
             try
@@ -694,11 +688,6 @@ namespace WIPAT
 
                 DataTable currentGridDataTable = currFile.FullTable;
                 DataTable newSourceTableForWipValues = _session.FinalDataTable;
-
-
-                // ---- deep clone (schema + data) ----
-                // currentGridDataTable = currFile.FullTable;
-                // newSourceTable       = _session.FinalDataTable;
 
                 // Clone structure of current table
                 DataTable updatedTable = currentGridDataTable.Clone();
@@ -727,7 +716,15 @@ namespace WIPAT
 
                         if (isMatch)
                         {
-                            targetRow["WIP"] = reviewWip;
+                            //targetRow["WIP"] = reviewWip;
+                            if (int.TryParse(reviewWip, out int wipValue))
+                            {
+                                targetRow["WIP"] = wipValue;
+                            }
+                            else
+                            {
+                                targetRow["WIP"] = DBNull.Value;
+                            }
                             break; // Assuming unique match
                         }
                     }

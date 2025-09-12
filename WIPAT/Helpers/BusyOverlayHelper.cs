@@ -42,7 +42,7 @@ namespace WIPAT.Helpers
         {
             SafeUI(() =>
             {
-                _setStatus?.Invoke("", StatusType.Reset); // restore to a neutral style
+               // _setStatus?.Invoke("", StatusType.Reset); // restore to a neutral style
                 _progressBar.Visible = false;
                 _parentForm.UseWaitCursor = false; // optional
             });

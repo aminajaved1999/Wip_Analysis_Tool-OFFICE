@@ -1,4 +1,5 @@
-﻿using System.Windows.Forms;
+﻿using System.Drawing;
+using System.Windows.Forms;
 
 namespace WIPAT
 {
@@ -170,6 +171,7 @@ namespace WIPAT
             // 
             // MainForm
             // 
+            this.Icon = Properties.Resources.icon;
             this.ClientSize = new System.Drawing.Size(1200, 700);
             this.Controls.Add(this.mainPanel);
             this.Controls.Add(this.stepperPanel);

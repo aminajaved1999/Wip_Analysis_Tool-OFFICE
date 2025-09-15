@@ -8,6 +8,8 @@ namespace WIPAT
 {
     public partial class LoginForm : Form
     {
+
+
         private readonly string usernamePlaceholder = "Username";
         private readonly string passwordPlaceholder = "Password";
         private AuthManager authManager;
@@ -16,6 +18,10 @@ namespace WIPAT
         public LoginForm()
         {
             InitializeComponent();
+            // After initializing the panels, add the outlines
+            AddOutlineToPanel(this, this.leftPanel);
+            AddOutlineToPanel(this, this.rightPanel);
+
             authManager = new AuthManager();
             userRepository = new UserRepository();
 
@@ -31,6 +37,8 @@ namespace WIPAT
             passwordTextBox.GotFocus += RemovePlaceholderText;
             passwordTextBox.LostFocus += AddPlaceholderText;
 
+            // Override OnPaint to draw a shadow around the entire form
+            this.DoubleBuffered = true;
 
         }
 
@@ -136,6 +144,23 @@ namespace WIPAT
         {
             dragging = false;
         }
+
+        private void AddOutlineToPanel(Form form, Panel panel)
+        {
+            // Ensure that the Paint event for the panel is properly handled
+            panel.Paint += (sender, e) =>
+            {
+
+                //Draw a border around the panel after shadow
+                using (Pen borderPen = new Pen(Color.Gray, 1))
+                {
+                    e.Graphics.DrawRectangle(borderPen, 0, 0, panel.Width - 1, panel.Height - 1);
+                }
+            };
+
+        }
+
+
 
     }
 

@@ -320,13 +320,13 @@ namespace WIPAT.BLL
         public async Task<Response<DataTable>> HandleStockFile(string filePath, bool stockUploaded)
         {
             var res = new Response<DataTable>();
-            if (stockUploaded)
-            {
-                res.Success = false;
-                res.Message = "Stock file already uploaded.";
-                res.Data = null;
-                return res;
-            }
+            //if (stockUploaded)
+            //{
+            //    res.Success = false;
+            //    res.Message = "Stock file already uploaded.";
+            //    res.Data = null;
+            //    return res;
+            //}
 
             // import the stock file into datatable
             var loadResponse = await LoadStockDataFromExcelIntoDataTable(filePath);

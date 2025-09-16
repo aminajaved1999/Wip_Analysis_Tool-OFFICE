@@ -4,10 +4,9 @@ using System.Windows.Forms;
 
 namespace WIPAT
 {
-    partial class UploadForm : Form
+    partial class UploadForm
     {
         private System.ComponentModel.IContainer components = null;
-        private Button btnUpload;
         private Button btnBrowseForecast;
         private Button btnBrowseStock;
         private Button btnBrowseOrder;
@@ -27,12 +26,27 @@ namespace WIPAT
         private DataGridView dataGridViewOrder;
         private DataGridView dataGridViewStock;
 
-        private System.Windows.Forms.TabControl tabControl;
-        private System.Windows.Forms.TabPage tabPageForecast;
-        private System.Windows.Forms.TabPage tabPageStock;
-        private System.Windows.Forms.TabPage tabPageOrder;
+        private TabControl tabControl;
+        private TabPage tabPageForecast;
+        private TabPage tabPageStock;
+        private TabPage tabPageOrder;
 
+        private ProgressBar progressBar1;
+        private Panel headerForecast;
+        private FlowLayoutPanel headerFLayout;
+        private TableLayoutPanel gridForecast;
+        private Panel cardF1;
+        private Panel cardF2;
+        private Panel cardF3;
+        private Panel cardF4;
 
+        private Panel headerStock;
+        private FlowLayoutPanel headerSLayout;
+        private Panel cardStock;
+
+        private Panel headerOrder;
+        private FlowLayoutPanel headerOLayout;
+        private Panel cardOrder;
 
         protected override void Dispose(bool disposing)
         {
@@ -43,299 +57,592 @@ namespace WIPAT
 
         private void InitializeComponent()
         {
-            this.btnUpload = new System.Windows.Forms.Button();
-            this.btnBrowseForecast = new System.Windows.Forms.Button();
-            this.btnBrowseStock = new System.Windows.Forms.Button();
-            this.btnBrowseOrder = new System.Windows.Forms.Button();
-            this.lblDGV1 = new System.Windows.Forms.Label();
-            this.lblDGV2 = new System.Windows.Forms.Label();
-            this.lblDGV3 = new System.Windows.Forms.Label();
-            this.lblDGV4 = new System.Windows.Forms.Label();
-            this.lblStock = new System.Windows.Forms.Label();
-            this.lblOrder = new System.Windows.Forms.Label();
-            this.dataGridView1 = new System.Windows.Forms.DataGridView();
-            this.dataGridView2 = new System.Windows.Forms.DataGridView();
-            this.dataGridView3 = new System.Windows.Forms.DataGridView();
-            this.dataGridView4 = new System.Windows.Forms.DataGridView();
-            this.dataGridViewOrder = new System.Windows.Forms.DataGridView();
-            this.dataGridViewStock = new System.Windows.Forms.DataGridView();
+            this.spacerHeaderF1 = new System.Windows.Forms.Panel();
+            this.spacerHeaderF2 = new System.Windows.Forms.Panel();
+            this.spacerF1 = new System.Windows.Forms.Panel();
+            this.spacerF2 = new System.Windows.Forms.Panel();
+            this.spacerF3 = new System.Windows.Forms.Panel();
+            this.spacerF4 = new System.Windows.Forms.Panel();
+            this.spacerS = new System.Windows.Forms.Panel();
+            this.spacerO = new System.Windows.Forms.Panel();
             this.tabControl = new System.Windows.Forms.TabControl();
             this.tabPageForecast = new System.Windows.Forms.TabPage();
+            this.gridForecast = new System.Windows.Forms.TableLayoutPanel();
+            this.cardF1 = new System.Windows.Forms.Panel();
+            this.dataGridView1 = new System.Windows.Forms.DataGridView();
+            this.lblDGV1 = new System.Windows.Forms.Label();
+            this.cardF2 = new System.Windows.Forms.Panel();
+            this.dataGridView2 = new System.Windows.Forms.DataGridView();
+            this.lblDGV2 = new System.Windows.Forms.Label();
+            this.cardF3 = new System.Windows.Forms.Panel();
+            this.dataGridView3 = new System.Windows.Forms.DataGridView();
+            this.lblDGV3 = new System.Windows.Forms.Label();
+            this.cardF4 = new System.Windows.Forms.Panel();
+            this.dataGridView4 = new System.Windows.Forms.DataGridView();
+            this.lblDGV4 = new System.Windows.Forms.Label();
+            this.headerForecast = new System.Windows.Forms.Panel();
+            this.headerFLayout = new System.Windows.Forms.FlowLayoutPanel();
+            this.btnBrowseForecast = new System.Windows.Forms.Button();
             this.progressBar1 = new System.Windows.Forms.ProgressBar();
             this.tabPageStock = new System.Windows.Forms.TabPage();
+            this.cardStock = new System.Windows.Forms.Panel();
+            this.dataGridViewStock = new System.Windows.Forms.DataGridView();
+            this.lblStock = new System.Windows.Forms.Label();
+            this.headerStock = new System.Windows.Forms.Panel();
+            this.headerSLayout = new System.Windows.Forms.FlowLayoutPanel();
+            this.btnBrowseStock = new System.Windows.Forms.Button();
             this.tabPageOrder = new System.Windows.Forms.TabPage();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView2)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView3)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView4)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewOrder)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewStock)).BeginInit();
+            this.cardOrder = new System.Windows.Forms.Panel();
+            this.dataGridViewOrder = new System.Windows.Forms.DataGridView();
+            this.lblOrder = new System.Windows.Forms.Label();
+            this.headerOrder = new System.Windows.Forms.Panel();
+            this.headerOLayout = new System.Windows.Forms.FlowLayoutPanel();
+            this.btnBrowseOrder = new System.Windows.Forms.Button();
             this.tabControl.SuspendLayout();
             this.tabPageForecast.SuspendLayout();
+            this.gridForecast.SuspendLayout();
+            this.cardF1.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
+            this.cardF2.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView2)).BeginInit();
+            this.cardF3.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView3)).BeginInit();
+            this.cardF4.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView4)).BeginInit();
+            this.headerForecast.SuspendLayout();
+            this.headerFLayout.SuspendLayout();
             this.tabPageStock.SuspendLayout();
+            this.cardStock.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewStock)).BeginInit();
+            this.headerStock.SuspendLayout();
+            this.headerSLayout.SuspendLayout();
             this.tabPageOrder.SuspendLayout();
+            this.cardOrder.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewOrder)).BeginInit();
+            this.headerOrder.SuspendLayout();
+            this.headerOLayout.SuspendLayout();
             this.SuspendLayout();
             // 
-            // btnUpload
+            // spacerHeaderF1
             // 
-            this.btnUpload.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(122)))), ((int)(((byte)(204)))));
-            this.btnUpload.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.btnUpload.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnUpload.Font = new System.Drawing.Font("Segoe UI", 11F);
-            this.btnUpload.ForeColor = System.Drawing.Color.White;
-            this.btnUpload.Location = new System.Drawing.Point(8, 860);
-            this.btnUpload.Name = "btnUpload";
-            this.btnUpload.Size = new System.Drawing.Size(1108, 40);
-            this.btnUpload.TabIndex = 13;
-            this.btnUpload.Text = "Finish Upload";
-            this.btnUpload.UseVisualStyleBackColor = false;
-            this.btnUpload.Click += new System.EventHandler(this.btnUpload_Click);
+            this.spacerHeaderF1.Location = new System.Drawing.Point(0, 0);
+            this.spacerHeaderF1.Margin = new System.Windows.Forms.Padding(0);
+            this.spacerHeaderF1.Name = "spacerHeaderF1";
+            this.spacerHeaderF1.Size = new System.Drawing.Size(8, 1);
+            this.spacerHeaderF1.TabIndex = 1;
             // 
-            // btnBrowseForecast
+            // spacerHeaderF2
             // 
-            this.btnBrowseForecast.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
-            this.btnBrowseForecast.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.btnBrowseForecast.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnBrowseForecast.Font = new System.Drawing.Font("Segoe UI", 11F);
-            this.btnBrowseForecast.ForeColor = System.Drawing.Color.White;
-            this.btnBrowseForecast.Location = new System.Drawing.Point(21, 38);
-            this.btnBrowseForecast.Name = "btnBrowseForecast";
-            this.btnBrowseForecast.Size = new System.Drawing.Size(180, 48);
-            this.btnBrowseForecast.TabIndex = 16;
-            this.btnBrowseForecast.Text = "Browse Forecast File";
-            this.btnBrowseForecast.UseVisualStyleBackColor = false;
-            this.btnBrowseForecast.Click += new System.EventHandler(this.btnBrowseForecast_Click);
+            this.spacerHeaderF2.Location = new System.Drawing.Point(156, 0);
+            this.spacerHeaderF2.Margin = new System.Windows.Forms.Padding(0);
+            this.spacerHeaderF2.Name = "spacerHeaderF2";
+            this.spacerHeaderF2.Size = new System.Drawing.Size(8, 1);
+            this.spacerHeaderF2.TabIndex = 3;
             // 
-            // btnBrowseStock
+            // spacerF1
             // 
-            this.btnBrowseStock.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
-            this.btnBrowseStock.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.btnBrowseStock.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnBrowseStock.Font = new System.Drawing.Font("Segoe UI", 11F);
-            this.btnBrowseStock.ForeColor = System.Drawing.Color.White;
-            this.btnBrowseStock.Location = new System.Drawing.Point(21, 11);
-            this.btnBrowseStock.Name = "btnBrowseStock";
-            this.btnBrowseStock.Size = new System.Drawing.Size(180, 48);
-            this.btnBrowseStock.TabIndex = 17;
-            this.btnBrowseStock.Text = "Browse Stock File";
-            this.btnBrowseStock.UseVisualStyleBackColor = false;
-            this.btnBrowseStock.Click += new System.EventHandler(this.btnBrowseStock_Click);
+            this.spacerF1.Dock = System.Windows.Forms.DockStyle.Top;
+            this.spacerF1.Location = new System.Drawing.Point(14, 40);
+            this.spacerF1.Name = "spacerF1";
+            this.spacerF1.Size = new System.Drawing.Size(584, 8);
+            this.spacerF1.TabIndex = 1;
             // 
-            // btnBrowseOrder
+            // spacerF2
             // 
-            this.btnBrowseOrder.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
-            this.btnBrowseOrder.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.btnBrowseOrder.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnBrowseOrder.Font = new System.Drawing.Font("Segoe UI", 11F);
-            this.btnBrowseOrder.ForeColor = System.Drawing.Color.White;
-            this.btnBrowseOrder.Location = new System.Drawing.Point(21, 11);
-            this.btnBrowseOrder.Name = "btnBrowseOrder";
-            this.btnBrowseOrder.Size = new System.Drawing.Size(180, 48);
-            this.btnBrowseOrder.TabIndex = 17;
-            this.btnBrowseOrder.Text = "Browse Order File";
-            this.btnBrowseOrder.UseVisualStyleBackColor = false;
-            this.btnBrowseOrder.Click += new System.EventHandler(this.btnBrowseOrder_Click);
+            this.spacerF2.Dock = System.Windows.Forms.DockStyle.Top;
+            this.spacerF2.Location = new System.Drawing.Point(14, 40);
+            this.spacerF2.Name = "spacerF2";
+            this.spacerF2.Size = new System.Drawing.Size(584, 8);
+            this.spacerF2.TabIndex = 1;
             // 
-            // lblDGV1
+            // spacerF3
             // 
-            this.lblDGV1.AutoSize = true;
-            this.lblDGV1.Location = new System.Drawing.Point(18, 99);
-            this.lblDGV1.Name = "lblDGV1";
-            this.lblDGV1.Size = new System.Drawing.Size(83, 13);
-            this.lblDGV1.TabIndex = 21;
-            this.lblDGV1.Text = "Forecast 1 Data";
-            this.lblDGV1.Visible = false;
+            this.spacerF3.Dock = System.Windows.Forms.DockStyle.Top;
+            this.spacerF3.Location = new System.Drawing.Point(14, 40);
+            this.spacerF3.Name = "spacerF3";
+            this.spacerF3.Size = new System.Drawing.Size(584, 8);
+            this.spacerF3.TabIndex = 1;
             // 
-            // lblDGV2
+            // spacerF4
             // 
-            this.lblDGV2.AutoSize = true;
-            this.lblDGV2.Location = new System.Drawing.Point(855, 99);
-            this.lblDGV2.Name = "lblDGV2";
-            this.lblDGV2.Size = new System.Drawing.Size(83, 13);
-            this.lblDGV2.TabIndex = 22;
-            this.lblDGV2.Text = "Forecast 2 Data";
-            this.lblDGV2.Visible = false;
+            this.spacerF4.Dock = System.Windows.Forms.DockStyle.Top;
+            this.spacerF4.Location = new System.Drawing.Point(14, 40);
+            this.spacerF4.Name = "spacerF4";
+            this.spacerF4.Size = new System.Drawing.Size(584, 8);
+            this.spacerF4.TabIndex = 1;
             // 
-            // lblDGV3
+            // spacerS
             // 
-            this.lblDGV3.AutoSize = true;
-            this.lblDGV3.Location = new System.Drawing.Point(18, 310);
-            this.lblDGV3.Name = "lblDGV3";
-            this.lblDGV3.Size = new System.Drawing.Size(83, 13);
-            this.lblDGV3.TabIndex = 23;
-            this.lblDGV3.Text = "Forecast 3 Data";
-            this.lblDGV3.Visible = false;
+            this.spacerS.Dock = System.Windows.Forms.DockStyle.Top;
+            this.spacerS.Location = new System.Drawing.Point(14, 40);
+            this.spacerS.Name = "spacerS";
+            this.spacerS.Size = new System.Drawing.Size(1242, 8);
+            this.spacerS.TabIndex = 1;
             // 
-            // lblDGV4
+            // spacerO
             // 
-            this.lblDGV4.AutoSize = true;
-            this.lblDGV4.Location = new System.Drawing.Point(855, 310);
-            this.lblDGV4.Name = "lblDGV4";
-            this.lblDGV4.Size = new System.Drawing.Size(83, 13);
-            this.lblDGV4.TabIndex = 24;
-            this.lblDGV4.Text = "Forecast 4 Data";
-            this.lblDGV4.Visible = false;
-            // 
-            // lblStock
-            // 
-            this.lblStock.AutoSize = true;
-            this.lblStock.Location = new System.Drawing.Point(18, 88);
-            this.lblStock.Name = "lblStock";
-            this.lblStock.Size = new System.Drawing.Size(61, 13);
-            this.lblStock.TabIndex = 18;
-            this.lblStock.Text = "Stock Data";
-            // 
-            // lblOrder
-            // 
-            this.lblOrder.AutoSize = true;
-            this.lblOrder.Location = new System.Drawing.Point(18, 89);
-            this.lblOrder.Name = "lblOrder";
-            this.lblOrder.Size = new System.Drawing.Size(59, 13);
-            this.lblOrder.TabIndex = 18;
-            this.lblOrder.Text = "Order Data";
-            // 
-            // dataGridView1
-            // 
-            this.dataGridView1.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dataGridView1.Location = new System.Drawing.Point(21, 115);
-            this.dataGridView1.Name = "dataGridView1";
-            this.dataGridView1.Size = new System.Drawing.Size(804, 165);
-            this.dataGridView1.TabIndex = 17;
-            // 
-            // dataGridView2
-            // 
-            this.dataGridView2.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dataGridView2.Location = new System.Drawing.Point(858, 115);
-            this.dataGridView2.Name = "dataGridView2";
-            this.dataGridView2.Size = new System.Drawing.Size(804, 165);
-            this.dataGridView2.TabIndex = 18;
-            // 
-            // dataGridView3
-            // 
-            this.dataGridView3.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dataGridView3.Location = new System.Drawing.Point(21, 326);
-            this.dataGridView3.Name = "dataGridView3";
-            this.dataGridView3.Size = new System.Drawing.Size(804, 165);
-            this.dataGridView3.TabIndex = 19;
-            // 
-            // dataGridView4
-            // 
-            this.dataGridView4.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dataGridView4.Location = new System.Drawing.Point(858, 326);
-            this.dataGridView4.Name = "dataGridView4";
-            this.dataGridView4.Size = new System.Drawing.Size(804, 165);
-            this.dataGridView4.TabIndex = 20;
-            // 
-            // dataGridViewOrder
-            // 
-            this.dataGridViewOrder.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dataGridViewOrder.Location = new System.Drawing.Point(21, 109);
-            this.dataGridViewOrder.Name = "dataGridViewOrder";
-            this.dataGridViewOrder.Size = new System.Drawing.Size(415, 150);
-            this.dataGridViewOrder.TabIndex = 19;
-            // 
-            // dataGridViewStock
-            // 
-            this.dataGridViewStock.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.dataGridViewStock.Location = new System.Drawing.Point(21, 118);
-            this.dataGridViewStock.Name = "dataGridViewStock";
-            this.dataGridViewStock.Size = new System.Drawing.Size(415, 150);
-            this.dataGridViewStock.TabIndex = 19;
+            this.spacerO.Dock = System.Windows.Forms.DockStyle.Top;
+            this.spacerO.Location = new System.Drawing.Point(14, 40);
+            this.spacerO.Name = "spacerO";
+            this.spacerO.Size = new System.Drawing.Size(1242, 8);
+            this.spacerO.TabIndex = 1;
             // 
             // tabControl
             // 
-            this.tabControl.Appearance = System.Windows.Forms.TabAppearance.FlatButtons;
             this.tabControl.Controls.Add(this.tabPageForecast);
             this.tabControl.Controls.Add(this.tabPageStock);
             this.tabControl.Controls.Add(this.tabPageOrder);
             this.tabControl.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tabControl.ItemSize = new System.Drawing.Size(140, 50);
+            this.tabControl.Font = new System.Drawing.Font("Segoe UI", 10.5F);
+            this.tabControl.ItemSize = new System.Drawing.Size(140, 28);
             this.tabControl.Location = new System.Drawing.Point(0, 0);
             this.tabControl.Name = "tabControl";
+            this.tabControl.Padding = new System.Drawing.Point(22, 6);
             this.tabControl.SelectedIndex = 0;
-            this.tabControl.Size = new System.Drawing.Size(1708, 585);
-            this.tabControl.TabIndex = 13;
+            this.tabControl.Size = new System.Drawing.Size(1280, 720);
+            this.tabControl.TabIndex = 0;
             // 
             // tabPageForecast
             // 
-            this.tabPageForecast.BackColor = System.Drawing.Color.White;
-            this.tabPageForecast.Controls.Add(this.progressBar1);
-            this.tabPageForecast.Controls.Add(this.btnBrowseForecast);
-            this.tabPageForecast.Controls.Add(this.dataGridView1);
-            this.tabPageForecast.Controls.Add(this.dataGridView2);
-            this.tabPageForecast.Controls.Add(this.dataGridView3);
-            this.tabPageForecast.Controls.Add(this.dataGridView4);
-            this.tabPageForecast.Controls.Add(this.lblDGV1);
-            this.tabPageForecast.Controls.Add(this.lblDGV2);
-            this.tabPageForecast.Controls.Add(this.lblDGV3);
-            this.tabPageForecast.Controls.Add(this.lblDGV4);
-            this.tabPageForecast.Location = new System.Drawing.Point(4, 54);
+            this.tabPageForecast.BackColor = System.Drawing.Color.Transparent;
+            this.tabPageForecast.Controls.Add(this.gridForecast);
+            this.tabPageForecast.Controls.Add(this.headerForecast);
+            this.tabPageForecast.Location = new System.Drawing.Point(4, 32);
             this.tabPageForecast.Name = "tabPageForecast";
-            this.tabPageForecast.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPageForecast.Size = new System.Drawing.Size(1700, 527);
+            this.tabPageForecast.Size = new System.Drawing.Size(1272, 684);
             this.tabPageForecast.TabIndex = 0;
             this.tabPageForecast.Text = "Forecast File";
             // 
+            // gridForecast
+            // 
+            this.gridForecast.BackColor = System.Drawing.Color.Transparent;
+            this.gridForecast.ColumnCount = 2;
+            this.gridForecast.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.gridForecast.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.gridForecast.Controls.Add(this.cardF1, 0, 0);
+            this.gridForecast.Controls.Add(this.cardF2, 1, 0);
+            this.gridForecast.Controls.Add(this.cardF3, 0, 1);
+            this.gridForecast.Controls.Add(this.cardF4, 1, 1);
+            this.gridForecast.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.gridForecast.Location = new System.Drawing.Point(0, 72);
+            this.gridForecast.Name = "gridForecast";
+            this.gridForecast.Padding = new System.Windows.Forms.Padding(16);
+            this.gridForecast.RowCount = 2;
+            this.gridForecast.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.gridForecast.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.gridForecast.Size = new System.Drawing.Size(1272, 612);
+            this.gridForecast.TabIndex = 0;
+            // 
+            // cardF1
+            // 
+            this.cardF1.BackColor = System.Drawing.Color.White;
+            this.cardF1.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.cardF1.Controls.Add(this.dataGridView1);
+            this.cardF1.Controls.Add(this.spacerF1);
+            this.cardF1.Controls.Add(this.lblDGV1);
+            this.cardF1.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cardF1.Location = new System.Drawing.Point(19, 19);
+            this.cardF1.Name = "cardF1";
+            this.cardF1.Padding = new System.Windows.Forms.Padding(14);
+            this.cardF1.Size = new System.Drawing.Size(614, 284);
+            this.cardF1.TabIndex = 0;
+            // 
+            // dataGridView1
+            // 
+            this.dataGridView1.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dataGridView1.BackgroundColor = System.Drawing.Color.White;
+            this.dataGridView1.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.dataGridView1.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dataGridView1.Location = new System.Drawing.Point(14, 48);
+            this.dataGridView1.Name = "dataGridView1";
+            this.dataGridView1.RowHeadersVisible = false;
+            this.dataGridView1.Size = new System.Drawing.Size(584, 220);
+            this.dataGridView1.TabIndex = 0;
+            // 
+            // lblDGV1
+            // 
+            this.lblDGV1.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblDGV1.Font = new System.Drawing.Font("Segoe UI Semibold", 11F, System.Drawing.FontStyle.Bold);
+            this.lblDGV1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
+            this.lblDGV1.Location = new System.Drawing.Point(14, 14);
+            this.lblDGV1.Name = "lblDGV1";
+            this.lblDGV1.Size = new System.Drawing.Size(584, 26);
+            this.lblDGV1.TabIndex = 2;
+            this.lblDGV1.Text = "Forecast 1 Data";
+            // 
+            // cardF2
+            // 
+            this.cardF2.BackColor = System.Drawing.Color.White;
+            this.cardF2.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.cardF2.Controls.Add(this.dataGridView2);
+            this.cardF2.Controls.Add(this.spacerF2);
+            this.cardF2.Controls.Add(this.lblDGV2);
+            this.cardF2.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cardF2.Location = new System.Drawing.Point(639, 19);
+            this.cardF2.Name = "cardF2";
+            this.cardF2.Padding = new System.Windows.Forms.Padding(14);
+            this.cardF2.Size = new System.Drawing.Size(614, 284);
+            this.cardF2.TabIndex = 1;
+            // 
+            // dataGridView2
+            // 
+            this.dataGridView2.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dataGridView2.BackgroundColor = System.Drawing.Color.White;
+            this.dataGridView2.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.dataGridView2.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dataGridView2.Location = new System.Drawing.Point(14, 48);
+            this.dataGridView2.Name = "dataGridView2";
+            this.dataGridView2.RowHeadersVisible = false;
+            this.dataGridView2.Size = new System.Drawing.Size(584, 220);
+            this.dataGridView2.TabIndex = 0;
+            // 
+            // lblDGV2
+            // 
+            this.lblDGV2.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblDGV2.Font = new System.Drawing.Font("Segoe UI Semibold", 11F, System.Drawing.FontStyle.Bold);
+            this.lblDGV2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
+            this.lblDGV2.Location = new System.Drawing.Point(14, 14);
+            this.lblDGV2.Name = "lblDGV2";
+            this.lblDGV2.Size = new System.Drawing.Size(584, 26);
+            this.lblDGV2.TabIndex = 2;
+            this.lblDGV2.Text = "Forecast 2 Data";
+            // 
+            // cardF3
+            // 
+            this.cardF3.BackColor = System.Drawing.Color.White;
+            this.cardF3.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.cardF3.Controls.Add(this.dataGridView3);
+            this.cardF3.Controls.Add(this.spacerF3);
+            this.cardF3.Controls.Add(this.lblDGV3);
+            this.cardF3.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cardF3.Location = new System.Drawing.Point(19, 309);
+            this.cardF3.Name = "cardF3";
+            this.cardF3.Padding = new System.Windows.Forms.Padding(14);
+            this.cardF3.Size = new System.Drawing.Size(614, 284);
+            this.cardF3.TabIndex = 2;
+            // 
+            // dataGridView3
+            // 
+            this.dataGridView3.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dataGridView3.BackgroundColor = System.Drawing.Color.White;
+            this.dataGridView3.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.dataGridView3.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dataGridView3.Location = new System.Drawing.Point(14, 48);
+            this.dataGridView3.Name = "dataGridView3";
+            this.dataGridView3.RowHeadersVisible = false;
+            this.dataGridView3.Size = new System.Drawing.Size(584, 220);
+            this.dataGridView3.TabIndex = 0;
+            // 
+            // lblDGV3
+            // 
+            this.lblDGV3.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblDGV3.Font = new System.Drawing.Font("Segoe UI Semibold", 11F, System.Drawing.FontStyle.Bold);
+            this.lblDGV3.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
+            this.lblDGV3.Location = new System.Drawing.Point(14, 14);
+            this.lblDGV3.Name = "lblDGV3";
+            this.lblDGV3.Size = new System.Drawing.Size(584, 26);
+            this.lblDGV3.TabIndex = 2;
+            this.lblDGV3.Text = "Forecast 3 Data";
+            // 
+            // cardF4
+            // 
+            this.cardF4.BackColor = System.Drawing.Color.White;
+            this.cardF4.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.cardF4.Controls.Add(this.dataGridView4);
+            this.cardF4.Controls.Add(this.spacerF4);
+            this.cardF4.Controls.Add(this.lblDGV4);
+            this.cardF4.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cardF4.Location = new System.Drawing.Point(639, 309);
+            this.cardF4.Name = "cardF4";
+            this.cardF4.Padding = new System.Windows.Forms.Padding(14);
+            this.cardF4.Size = new System.Drawing.Size(614, 284);
+            this.cardF4.TabIndex = 3;
+            // 
+            // dataGridView4
+            // 
+            this.dataGridView4.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dataGridView4.BackgroundColor = System.Drawing.Color.White;
+            this.dataGridView4.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.dataGridView4.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dataGridView4.Location = new System.Drawing.Point(14, 48);
+            this.dataGridView4.Name = "dataGridView4";
+            this.dataGridView4.RowHeadersVisible = false;
+            this.dataGridView4.Size = new System.Drawing.Size(584, 220);
+            this.dataGridView4.TabIndex = 0;
+            // 
+            // lblDGV4
+            // 
+            this.lblDGV4.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblDGV4.Font = new System.Drawing.Font("Segoe UI Semibold", 11F, System.Drawing.FontStyle.Bold);
+            this.lblDGV4.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
+            this.lblDGV4.Location = new System.Drawing.Point(14, 14);
+            this.lblDGV4.Name = "lblDGV4";
+            this.lblDGV4.Size = new System.Drawing.Size(584, 26);
+            this.lblDGV4.TabIndex = 2;
+            this.lblDGV4.Text = "Forecast 4 Data";
+            // 
+            // headerForecast
+            // 
+            this.headerForecast.Controls.Add(this.headerFLayout);
+            this.headerForecast.Dock = System.Windows.Forms.DockStyle.Top;
+            this.headerForecast.Location = new System.Drawing.Point(0, 0);
+            this.headerForecast.Name = "headerForecast";
+            this.headerForecast.Padding = new System.Windows.Forms.Padding(16, 16, 16, 8);
+            this.headerForecast.Size = new System.Drawing.Size(1272, 72);
+            this.headerForecast.TabIndex = 1;
+            // 
+            // headerFLayout
+            // 
+            this.headerFLayout.Controls.Add(this.spacerHeaderF1);
+            this.headerFLayout.Controls.Add(this.btnBrowseForecast);
+            this.headerFLayout.Controls.Add(this.spacerHeaderF2);
+            this.headerFLayout.Controls.Add(this.progressBar1);
+            this.headerFLayout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.headerFLayout.Location = new System.Drawing.Point(16, 16);
+            this.headerFLayout.Name = "headerFLayout";
+            this.headerFLayout.Size = new System.Drawing.Size(1240, 48);
+            this.headerFLayout.TabIndex = 0;
+            this.headerFLayout.WrapContents = false;
+            // 
+            // btnBrowseForecast
+            // 
+            this.btnBrowseForecast.AutoSize = true;
+            this.btnBrowseForecast.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(126)))), ((int)(((byte)(255)))));
+            this.btnBrowseForecast.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.btnBrowseForecast.FlatAppearance.BorderSize = 0;
+            this.btnBrowseForecast.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnBrowseForecast.ForeColor = System.Drawing.Color.White;
+            this.btnBrowseForecast.Location = new System.Drawing.Point(11, 3);
+            this.btnBrowseForecast.Name = "btnBrowseForecast";
+            this.btnBrowseForecast.Size = new System.Drawing.Size(142, 38);
+            this.btnBrowseForecast.TabIndex = 2;
+            this.btnBrowseForecast.Text = "Browse Forecast File";
+            this.btnBrowseForecast.UseVisualStyleBackColor = false;
+            this.btnBrowseForecast.Click += new System.EventHandler(this.btnBrowseForecast_Click);
+            // 
             // progressBar1
             // 
-            this.progressBar1.Location = new System.Drawing.Point(8, 9);
-            this.progressBar1.MarqueeAnimationSpeed = 40;
+            this.progressBar1.Location = new System.Drawing.Point(167, 3);
             this.progressBar1.Name = "progressBar1";
-            this.progressBar1.Size = new System.Drawing.Size(300, 23);
+            this.progressBar1.Size = new System.Drawing.Size(160, 38);
             this.progressBar1.Style = System.Windows.Forms.ProgressBarStyle.Marquee;
-            this.progressBar1.TabIndex = 101;
+            this.progressBar1.TabIndex = 4;
             this.progressBar1.Visible = false;
             // 
             // tabPageStock
             // 
-            this.tabPageStock.BackColor = System.Drawing.Color.White;
-            this.tabPageStock.Controls.Add(this.btnBrowseStock);
-            this.tabPageStock.Controls.Add(this.lblStock);
-            this.tabPageStock.Controls.Add(this.dataGridViewStock);
-            this.tabPageStock.Location = new System.Drawing.Point(4, 54);
+            this.tabPageStock.BackColor = System.Drawing.Color.Transparent;
+            this.tabPageStock.Controls.Add(this.cardStock);
+            this.tabPageStock.Controls.Add(this.headerStock);
+            this.tabPageStock.Location = new System.Drawing.Point(4, 32);
             this.tabPageStock.Name = "tabPageStock";
-            this.tabPageStock.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPageStock.Size = new System.Drawing.Size(1700, 527);
+            this.tabPageStock.Size = new System.Drawing.Size(1272, 684);
             this.tabPageStock.TabIndex = 1;
             this.tabPageStock.Text = "Stock File";
             // 
+            // cardStock
+            // 
+            this.cardStock.BackColor = System.Drawing.Color.White;
+            this.cardStock.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.cardStock.Controls.Add(this.dataGridViewStock);
+            this.cardStock.Controls.Add(this.spacerS);
+            this.cardStock.Controls.Add(this.lblStock);
+            this.cardStock.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cardStock.Location = new System.Drawing.Point(0, 72);
+            this.cardStock.Name = "cardStock";
+            this.cardStock.Padding = new System.Windows.Forms.Padding(14);
+            this.cardStock.Size = new System.Drawing.Size(1272, 612);
+            this.cardStock.TabIndex = 0;
+            // 
+            // dataGridViewStock
+            // 
+            this.dataGridViewStock.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dataGridViewStock.BackgroundColor = System.Drawing.Color.White;
+            this.dataGridViewStock.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.dataGridViewStock.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dataGridViewStock.Location = new System.Drawing.Point(14, 48);
+            this.dataGridViewStock.Name = "dataGridViewStock";
+            this.dataGridViewStock.RowHeadersVisible = false;
+            this.dataGridViewStock.Size = new System.Drawing.Size(1242, 548);
+            this.dataGridViewStock.TabIndex = 0;
+            // 
+            // lblStock
+            // 
+            this.lblStock.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblStock.Font = new System.Drawing.Font("Segoe UI Semibold", 11F, System.Drawing.FontStyle.Bold);
+            this.lblStock.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
+            this.lblStock.Location = new System.Drawing.Point(14, 14);
+            this.lblStock.Name = "lblStock";
+            this.lblStock.Size = new System.Drawing.Size(1242, 26);
+            this.lblStock.TabIndex = 2;
+            this.lblStock.Text = "Stock Data";
+            // 
+            // headerStock
+            // 
+            this.headerStock.Controls.Add(this.headerSLayout);
+            this.headerStock.Dock = System.Windows.Forms.DockStyle.Top;
+            this.headerStock.Location = new System.Drawing.Point(0, 0);
+            this.headerStock.Name = "headerStock";
+            this.headerStock.Padding = new System.Windows.Forms.Padding(16, 16, 16, 8);
+            this.headerStock.Size = new System.Drawing.Size(1272, 72);
+            this.headerStock.TabIndex = 1;
+            // 
+            // headerSLayout
+            // 
+            this.headerSLayout.Controls.Add(this.btnBrowseStock);
+            this.headerSLayout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.headerSLayout.Location = new System.Drawing.Point(16, 16);
+            this.headerSLayout.Name = "headerSLayout";
+            this.headerSLayout.Size = new System.Drawing.Size(1240, 48);
+            this.headerSLayout.TabIndex = 0;
+            // 
+            // btnBrowseStock
+            // 
+            this.btnBrowseStock.AutoSize = true;
+            this.btnBrowseStock.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(126)))), ((int)(((byte)(255)))));
+            this.btnBrowseStock.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.btnBrowseStock.FlatAppearance.BorderSize = 0;
+            this.btnBrowseStock.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnBrowseStock.ForeColor = System.Drawing.Color.White;
+            this.btnBrowseStock.Location = new System.Drawing.Point(3, 3);
+            this.btnBrowseStock.Name = "btnBrowseStock";
+            this.btnBrowseStock.Size = new System.Drawing.Size(124, 38);
+            this.btnBrowseStock.TabIndex = 0;
+            this.btnBrowseStock.Text = "Browse Stock File";
+            this.btnBrowseStock.UseVisualStyleBackColor = false;
+            this.btnBrowseStock.Click += new System.EventHandler(this.btnBrowseStock_Click);
+            // 
             // tabPageOrder
             // 
-            this.tabPageOrder.BackColor = System.Drawing.Color.White;
-            this.tabPageOrder.Controls.Add(this.btnBrowseOrder);
-            this.tabPageOrder.Controls.Add(this.lblOrder);
-            this.tabPageOrder.Controls.Add(this.dataGridViewOrder);
-            this.tabPageOrder.Location = new System.Drawing.Point(4, 54);
+            this.tabPageOrder.BackColor = System.Drawing.Color.Transparent;
+            this.tabPageOrder.Controls.Add(this.cardOrder);
+            this.tabPageOrder.Controls.Add(this.headerOrder);
+            this.tabPageOrder.Location = new System.Drawing.Point(4, 32);
             this.tabPageOrder.Name = "tabPageOrder";
-            this.tabPageOrder.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPageOrder.Size = new System.Drawing.Size(1700, 527);
+            this.tabPageOrder.Size = new System.Drawing.Size(1272, 684);
             this.tabPageOrder.TabIndex = 2;
             this.tabPageOrder.Text = "Order File";
             // 
+            // cardOrder
+            // 
+            this.cardOrder.BackColor = System.Drawing.Color.White;
+            this.cardOrder.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.cardOrder.Controls.Add(this.dataGridViewOrder);
+            this.cardOrder.Controls.Add(this.spacerO);
+            this.cardOrder.Controls.Add(this.lblOrder);
+            this.cardOrder.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cardOrder.Location = new System.Drawing.Point(0, 72);
+            this.cardOrder.Name = "cardOrder";
+            this.cardOrder.Padding = new System.Windows.Forms.Padding(14);
+            this.cardOrder.Size = new System.Drawing.Size(1272, 612);
+            this.cardOrder.TabIndex = 0;
+            // 
+            // dataGridViewOrder
+            // 
+            this.dataGridViewOrder.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dataGridViewOrder.BackgroundColor = System.Drawing.Color.White;
+            this.dataGridViewOrder.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.dataGridViewOrder.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dataGridViewOrder.Location = new System.Drawing.Point(14, 48);
+            this.dataGridViewOrder.Name = "dataGridViewOrder";
+            this.dataGridViewOrder.RowHeadersVisible = false;
+            this.dataGridViewOrder.Size = new System.Drawing.Size(1242, 548);
+            this.dataGridViewOrder.TabIndex = 0;
+            // 
+            // lblOrder
+            // 
+            this.lblOrder.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblOrder.Font = new System.Drawing.Font("Segoe UI Semibold", 11F, System.Drawing.FontStyle.Bold);
+            this.lblOrder.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(55)))), ((int)(((byte)(72)))));
+            this.lblOrder.Location = new System.Drawing.Point(14, 14);
+            this.lblOrder.Name = "lblOrder";
+            this.lblOrder.Size = new System.Drawing.Size(1242, 26);
+            this.lblOrder.TabIndex = 2;
+            this.lblOrder.Text = "Order Data";
+            // 
+            // headerOrder
+            // 
+            this.headerOrder.Controls.Add(this.headerOLayout);
+            this.headerOrder.Dock = System.Windows.Forms.DockStyle.Top;
+            this.headerOrder.Location = new System.Drawing.Point(0, 0);
+            this.headerOrder.Name = "headerOrder";
+            this.headerOrder.Padding = new System.Windows.Forms.Padding(16, 16, 16, 8);
+            this.headerOrder.Size = new System.Drawing.Size(1272, 72);
+            this.headerOrder.TabIndex = 1;
+            // 
+            // headerOLayout
+            // 
+            this.headerOLayout.Controls.Add(this.btnBrowseOrder);
+            this.headerOLayout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.headerOLayout.Location = new System.Drawing.Point(16, 16);
+            this.headerOLayout.Name = "headerOLayout";
+            this.headerOLayout.Size = new System.Drawing.Size(1240, 48);
+            this.headerOLayout.TabIndex = 0;
+            // 
+            // btnBrowseOrder
+            // 
+            this.btnBrowseOrder.AutoSize = true;
+            this.btnBrowseOrder.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(126)))), ((int)(((byte)(255)))));
+            this.btnBrowseOrder.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.btnBrowseOrder.FlatAppearance.BorderSize = 0;
+            this.btnBrowseOrder.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnBrowseOrder.ForeColor = System.Drawing.Color.White;
+            this.btnBrowseOrder.Location = new System.Drawing.Point(3, 3);
+            this.btnBrowseOrder.Name = "btnBrowseOrder";
+            this.btnBrowseOrder.Size = new System.Drawing.Size(127, 38);
+            this.btnBrowseOrder.TabIndex = 0;
+            this.btnBrowseOrder.Text = "Browse Order File";
+            this.btnBrowseOrder.UseVisualStyleBackColor = false;
+            this.btnBrowseOrder.Click += new System.EventHandler(this.btnBrowseOrder_Click);
+            // 
             // UploadForm
             // 
-            this.ClientSize = new System.Drawing.Size(1708, 585);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
+            this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(248)))), ((int)(((byte)(250)))), ((int)(((byte)(253)))));
+            this.ClientSize = new System.Drawing.Size(1280, 720);
             this.Controls.Add(this.tabControl);
-            this.Controls.Add(this.btnUpload);
+            this.Font = new System.Drawing.Font("Segoe UI", 10F);
+            this.MinimumSize = new System.Drawing.Size(1000, 640);
             this.Name = "UploadForm";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "Upload Form";
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView2)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView3)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridView4)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewOrder)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewStock)).EndInit();
             this.tabControl.ResumeLayout(false);
             this.tabPageForecast.ResumeLayout(false);
-            this.tabPageForecast.PerformLayout();
+            this.gridForecast.ResumeLayout(false);
+            this.cardF1.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).EndInit();
+            this.cardF2.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView2)).EndInit();
+            this.cardF3.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView3)).EndInit();
+            this.cardF4.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridView4)).EndInit();
+            this.headerForecast.ResumeLayout(false);
+            this.headerFLayout.ResumeLayout(false);
+            this.headerFLayout.PerformLayout();
             this.tabPageStock.ResumeLayout(false);
-            this.tabPageStock.PerformLayout();
+            this.cardStock.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewStock)).EndInit();
+            this.headerStock.ResumeLayout(false);
+            this.headerSLayout.ResumeLayout(false);
+            this.headerSLayout.PerformLayout();
             this.tabPageOrder.ResumeLayout(false);
-            this.tabPageOrder.PerformLayout();
+            this.cardOrder.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewOrder)).EndInit();
+            this.headerOrder.ResumeLayout(false);
+            this.headerOLayout.ResumeLayout(false);
+            this.headerOLayout.PerformLayout();
             this.ResumeLayout(false);
 
         }
 
-        private ProgressBar progressBar1;
+        private Panel spacerHeaderF1;
+        private Panel spacerHeaderF2;
+        private Panel spacerF1;
+        private Panel spacerF2;
+        private Panel spacerF3;
+        private Panel spacerF4;
+        private Panel spacerS;
+        private Panel spacerO;
     }
 }

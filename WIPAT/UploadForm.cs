@@ -302,6 +302,7 @@ namespace WIPAT
             dgv.DataSource = dt;
             dgv.Visible = true;
             lbl.Visible = true;
+            lbl.Visible = true;
         }
 
         private bool ApplyForecastDataToControls() // Assign + Bind + Load + Show

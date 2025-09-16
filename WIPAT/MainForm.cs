@@ -299,14 +299,14 @@ namespace WIPAT
                 missing.Add("Current forecast (Curr)");
 
             // Metadata / selections
-            if (string.IsNullOrWhiteSpace(_session.WipType))
-                missing.Add("WIP Type (Analyst / Layman / LaymanFormula)");
-            if (string.IsNullOrWhiteSpace(_session.TargetMonth))
-                missing.Add("Target month (e.g., \"August 2025\")");
-            if (string.IsNullOrWhiteSpace(_session.CurrentMonth))
-                missing.Add("Current month (e.g., \"July 2025\")");
-            if (string.IsNullOrWhiteSpace(_session.CurrentMonthWithYear))
-                missing.Add("Current month with year (e.g., \"July 2025\")");
+            //if (string.IsNullOrWhiteSpace(_session.WipType))
+            //    missing.Add("WIP Type (Analyst / Layman / LaymanFormula)");
+            //if (string.IsNullOrWhiteSpace(_session.TargetMonth))
+            //    missing.Add("Target month (e.g., \"August 2025\")");
+            //if (string.IsNullOrWhiteSpace(_session.CurrentMonth))
+            //    missing.Add("Current month (e.g., \"July 2025\")");
+            //if (string.IsNullOrWhiteSpace(_session.CurrentMonthWithYear))
+            //    missing.Add("Current month with year (e.g., \"July 2025\")");
 
             // CommitmentPeriod (used during export filtering)
             if (_session.CommitmentPeriod <= 0)

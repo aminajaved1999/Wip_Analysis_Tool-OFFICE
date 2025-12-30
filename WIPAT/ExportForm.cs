@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Drawing; // Added for Point/Padding
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using OfficeOpenXml;
@@ -15,14 +16,21 @@ namespace WIPAT
         private readonly Action<string, StatusType> _setStatus;
 
         private Button btnExport;
-        private DataGridView previewGrid;   // optional: quick peek at what will export
+        private DataGridView previewGrid;
         private Label lblHint;
+
+        // -- NEW CONTROLS FOR SEARCHING --
+        private Panel pnlSearch;
+        private Label lblSearch;
+        private TextBox txtSearchAsin;
+        private BindingSource _bindingSource;
 
         public ExportForm(WipSession session, Action<string, StatusType> setStatus)
         {
             InitializeComponent();
             _session = session;
             _setStatus = setStatus;
+            _bindingSource = new BindingSource(); // Initialize BindingSource
 
             // UI
             Text = "Export WIP";
@@ -30,14 +38,43 @@ namespace WIPAT
             Height = 600;
             StartPosition = FormStartPosition.CenterParent;
 
+            // 1. Hint Label (Top)
             lblHint = new Label
             {
                 Dock = DockStyle.Top,
                 Height = 40,
                 Text = "Review the data below (optional), then click Export to save an Excel file.",
-                TextAlign = System.Drawing.ContentAlignment.MiddleLeft
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                Padding = new Padding(10, 0, 0, 0)
             };
 
+            // 2. Search Panel (Top, below Hint)
+            pnlSearch = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 40,
+                Padding = new Padding(5)
+            };
+
+            lblSearch = new Label
+            {
+                Text = "Search C-ASIN:",
+                AutoSize = true,
+                Location = new Point(10, 12)
+            };
+
+            txtSearchAsin = new TextBox
+            {
+                Location = new Point(110, 8),
+                Width = 200
+            };
+            // Event to trigger filter when typing
+            txtSearchAsin.TextChanged += TxtSearchAsin_TextChanged;
+
+            pnlSearch.Controls.Add(lblSearch);
+            pnlSearch.Controls.Add(txtSearchAsin);
+
+            // 3. Grid (Fill)
             previewGrid = new DataGridView
             {
                 Dock = DockStyle.Fill,
@@ -45,6 +82,7 @@ namespace WIPAT
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
             };
 
+            // 4. Export Button (Bottom)
             btnExport = new Button
             {
                 Dock = DockStyle.Bottom,
@@ -53,9 +91,12 @@ namespace WIPAT
             };
             btnExport.Click += async (s, e) => await ExportAsync();
 
+            // Add controls (Order matters for Docking)
+            // Add Fill content first, then docked edges
             Controls.Add(previewGrid);
-            Controls.Add(btnExport);
-            Controls.Add(lblHint);
+            Controls.Add(pnlSearch);    // Second Top
+            Controls.Add(lblHint);      // First Top
+            Controls.Add(btnExport);    // Bottom
 
             Load += ExportForm_Load;
         }
@@ -77,8 +118,42 @@ namespace WIPAT
                 btnExport.Enabled = false;
             }
 
-            // Optional preview
-            previewGrid.DataSource = _session.FinalDataTable;
+            // -- CHANGED: Bind Data via BindingSource to enable filtering --
+            if (_session.FinalDataTable != null)
+            {
+                _bindingSource.DataSource = _session.FinalDataTable;
+                previewGrid.DataSource = _bindingSource;
+            }
+        }
+
+        // -- NEW: Search Logic --
+        private void TxtSearchAsin_TextChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                if (_session.FinalDataTable == null) return;
+
+                string searchValue = txtSearchAsin.Text.Trim();
+
+                // Sanitize input to prevent injection errors in RowFilter (escape single quotes)
+                searchValue = searchValue.Replace("'", "''");
+
+                // Assuming the column name in DataTable is exactly "C-ASIN"
+                // [ ] brackets are required for column names with hyphens
+                if (string.IsNullOrEmpty(searchValue))
+                {
+                    _bindingSource.RemoveFilter();
+                }
+                else
+                {
+                    _bindingSource.Filter = string.Format("[C-ASIN] LIKE '%{0}%'", searchValue);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Silently fail or log if column doesn't exist to prevent crash while typing
+                System.Diagnostics.Debug.WriteLine("Filter Error: " + ex.Message);
+            }
         }
 
         private static string DetermineWipColumn(DataTable dataTable)
@@ -138,7 +213,7 @@ namespace WIPAT
 
                     var requiredColumns = new List<string>
                     {
-                        "C-ASIN", "Requested_Quantity", "Commitment_Period", "PO_Date", "Month", "Year", "Review_Wip"
+                        "C-ASIN", $"Requested_Quantity ({_session.Curr.Month})", $"CommitmentPeriod ({_session.Curr.Month})", "PO_Date", "Month", "Year", "Review_Wip"
                     };
                     foreach (var col in requiredColumns)
                     {
@@ -156,12 +231,15 @@ namespace WIPAT
                         return;
                     }
 
+                    // NOTE: We use dt.Rows (Original Source) for export, 
+                    // not the filtered grid view, so export always contains ALL data.
+                    // If you want to export only what is filtered, use _bindingSource instead.
                     foreach (DataRow r in dt.Rows)
                     {
                         string asin = r["C-ASIN"]?.ToString();
                         string month = r["Month"]?.ToString();
                         string year = r["Year"]?.ToString();
-                        string cpStr = r["Commitment_Period"]?.ToString() ?? "0";
+                        string cpStr = r[$"CommitmentPeriod ({_session.Curr.Month})"]?.ToString() ?? "0";
                         string wipQty = r[wipCol]?.ToString() ?? string.Empty;
 
                         if (!int.TryParse(cpStr, out int cp)) cp = 0;

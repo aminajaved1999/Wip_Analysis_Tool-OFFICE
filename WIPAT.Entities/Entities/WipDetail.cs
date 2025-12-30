@@ -11,11 +11,12 @@ namespace WIPAT.Entities
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
-        public int WipMaster_Id { get; set; }
+        public int? WipMaster_Id { get; set; }
         public string CASIN { get; set; }
         public string Month { get; set; }
         public string Year { get; set; }
         public int? WipQuantity { get; set; }
+        public int? SystemWip { get; set; }
         public int? Stock { get; set; }
         public string CommitmentPeriod { get; set; }
         public DateTime PODate { get; set; }
@@ -27,6 +28,10 @@ namespace WIPAT.Entities
         public int? MOQ_Wip { get; set; }
         public int? CasePack_Wip { get; set; }
         public int? CasePack { get; set; }
+        public int? UserWipQty { get; set; }
+
+        [ForeignKey(nameof(WipMaster_Id))]
+        public virtual WipMaster Master { get; set; }
 
     }
 }

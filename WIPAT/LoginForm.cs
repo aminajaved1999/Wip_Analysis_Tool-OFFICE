@@ -8,39 +8,54 @@ namespace WIPAT
 {
     public partial class LoginForm : Form
     {
-
+        #region Fields
 
         private readonly string usernamePlaceholder = "Username";
         private readonly string passwordPlaceholder = "Password";
-        private AuthManager authManager;
         private UserRepository userRepository;
+
+        #endregion
+
+        #region Constructor & Initialization
 
         public LoginForm()
         {
             InitializeComponent();
-            // After initializing the panels, add the outlines
+
+            // Add outlines to panels after InitializeComponent
             AddOutlineToPanel(this, this.leftPanel);
             AddOutlineToPanel(this, this.rightPanel);
 
-            authManager = new AuthManager();
             userRepository = new UserRepository();
 
             // Set initial placeholder text
             SetPlaceholder(usernameTextBox, usernamePlaceholder);
             SetPlaceholder(passwordTextBox, passwordPlaceholder, isPassword: true);
 
-            // Attach event handlers for username
+            // Attach placeholder handlers
             usernameTextBox.GotFocus += RemovePlaceholderText;
             usernameTextBox.LostFocus += AddPlaceholderText;
 
-            // Attach event handlers for password
             passwordTextBox.GotFocus += RemovePlaceholderText;
             passwordTextBox.LostFocus += AddPlaceholderText;
 
-            // Override OnPaint to draw a shadow around the entire form
+            // Smooth painting + Enter triggers Sign In
             this.DoubleBuffered = true;
+            this.AcceptButton = signInButton;
 
+            // Key handling (Enter to sign in)
+            usernameTextBox.KeyDown += usernameTextBox_KeyDown;
+            passwordTextBox.KeyDown += passwordTextBox_KeyDown;
+
+            // Drag handlers (attach these to the form or a top bar panel as needed)
+            this.MouseDown += Form_MouseDown;
+            this.MouseMove += Form_MouseMove;
+            this.MouseUp += Form_MouseUp;
         }
+
+        #endregion
+
+        #region Placeholder Helpers
 
         private void SetPlaceholder(TextBox tb, string placeholder, bool isPassword = false)
         {
@@ -48,7 +63,7 @@ namespace WIPAT
             tb.ForeColor = Color.Gray;
             if (isPassword)
             {
-                tb.PasswordChar = '\0';  // show text for placeholder
+                tb.PasswordChar = '\0'; // show text for placeholder
             }
         }
 
@@ -87,40 +102,59 @@ namespace WIPAT
             }
         }
 
+        #endregion
+
+        #region Sign-In Flow
+
         private void signInButton_Click(object sender, EventArgs e)
         {
-            // Ignore placeholder text when checking input
-            string username = usernameTextBox.Text == usernamePlaceholder ? "" : usernameTextBox.Text.Trim();
-            string password = passwordTextBox.Text == passwordPlaceholder ? "" : passwordTextBox.Text;
-
-            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            try
             {
-                MessageBox.Show("Please enter both username and password.", "Input Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                // Ignore placeholder text when checking input
+                string username = usernameTextBox.Text == usernamePlaceholder ? "" : usernameTextBox.Text.Trim();
+                string password = passwordTextBox.Text == passwordPlaceholder ? "" : passwordTextBox.Text;
+
+                if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                {
+                    MessageBox.Show("Please enter both username and password.", "Input Required",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var response = userRepository.ValidateUser(username, password);
+
+                if (response.Success)
+                {
+                    MainForm mainForm = new MainForm(response.Data);
+                    mainForm.Show();
+                    this.Hide();
+                }
+                else
+                {
+                    MessageBox.Show($"{response.Message}", "Login Failed",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    passwordTextBox.Clear();
+                    passwordTextBox.Focus();
+                }
             }
-
-            var response = userRepository.ValidateUser(username, password);
-
-            if (response.Success)
+            catch (Exception ex)
             {
-                MainForm mainForm = new MainForm();
-                mainForm.Show();
-                this.Hide();
-            }
-            else
-            {
-                MessageBox.Show($"{response.Message}", "Login Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                passwordTextBox.Clear();
-                passwordTextBox.Focus();
+                // Log or handle the exception here as needed
+                MessageBox.Show($"Exception occurred: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
 
         private void closeButton_Click(object sender, EventArgs e)
         {
             this.Close();
         }
 
-        // Drag event handlers
+        #endregion
+
+        #region Window Dragging
+
         private void Form_MouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
@@ -145,23 +179,46 @@ namespace WIPAT
             dragging = false;
         }
 
+        #endregion
+
+        #region UI Helpers
+
         private void AddOutlineToPanel(Form form, Panel panel)
         {
             // Ensure that the Paint event for the panel is properly handled
             panel.Paint += (sender, e) =>
             {
-
-                //Draw a border around the panel after shadow
                 using (Pen borderPen = new Pen(Color.Gray, 1))
                 {
                     e.Graphics.DrawRectangle(borderPen, 0, 0, panel.Width - 1, panel.Height - 1);
                 }
             };
-
         }
 
+        #endregion
 
+        #region Keyboard Handlers
 
+        private void usernameTextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                signInButton.PerformClick();
+                e.Handled = true;
+                e.SuppressKeyPress = true; // Prevents beep sound
+            }
+        }
+
+        private void passwordTextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                signInButton.PerformClick();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        }
+
+        #endregion
     }
-
 }

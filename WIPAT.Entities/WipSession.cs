@@ -31,5 +31,8 @@ namespace WIPAT.Entities
         public string WipStatus { get; set; }              // "Reviewed" / "Approved"
         public string WipProcessingType { get; set; }      // MonthOfSupply / Percentage / System
 
+        public User LoggedInUser { get; set; }
+
+
     }
 }

@@ -5,6 +5,8 @@ using System.Data;
 using System.Data.Entity;
 using System.Data.SqlClient;
 using System.Linq;
+using System.Net.NetworkInformation;
+using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Threading.Tasks;
 using WIPAT.Entities;
@@ -39,11 +41,34 @@ namespace WIPAT.DAL
                             context.Database.UseTransaction(transaction);
 
                             #region Check for Duplicate File
-                            if (forecastRepository.IsFileAlreadyImported(forecastData.FileName))
+                            var existingFileRes = forecastRepository.IsFileAlreadyImported(forecastData.FileName);
+                            if (existingFileRes.Success)
                             {
                                 return new Response<string> { Success = false, Message = $"Data with filename '{forecastData.FileName}' already exists. Please use a different file." };
                             }
                             #endregion
+
+                            #region Check If same ProjectionMonth, ProjectionYear already exist
+                            if (forecastRepository.IsProjectionAlreadyExists(forecastData.ProjectionMonth, forecastData.ProjectionYear))
+                            {
+                                return new Response<string>
+                                {
+                                    Success = false,
+                                    Message = $"Forecast data for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear} already exists."
+                                };
+                            }
+                            #endregion Check If same ProjectionMonth, ProjectionYear already exist
+
+                            #region Check If WIP for ProjectionMonth, ProjectionYear already calculated
+                            if (forecastRepository.IsWipAlreadyCalculated(forecastData.ProjectionMonth, forecastData.ProjectionYear))
+                            {
+                                return new Response<string>
+                                {
+                                    Success = false,
+                                    Message = $"WIP has already been calculated for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear}. Duplicate calculation is not allowed."
+                                };
+                            }
+                            #endregion Check If WIP for ProjectionMonth, ProjectionYear already calculated
 
                             #region Save Master Record
                             var master = new ForecastMaster
@@ -71,7 +96,7 @@ namespace WIPAT.DAL
                             bulkTable.Columns.Add("Month", typeof(string));
                             bulkTable.Columns.Add("Year", typeof(string));
                             bulkTable.Columns.Add("POForecastMasterId", typeof(int));
-
+                            bulkTable.Columns.Add("IsSystemGenerated", typeof(bool));
                             foreach (DataRow row in forecastData.FullTable.Rows)
                             {
                                 var newRow = bulkTable.NewRow();
@@ -83,7 +108,14 @@ namespace WIPAT.DAL
                                 newRow["Month"] = row["Month"].ToString();
                                 newRow["Year"] = row["Year"].ToString();
                                 newRow["POForecastMasterId"] = masterId;
-
+                                if (row.Table.Columns.Contains("IsSystemGenerated") && row["IsSystemGenerated"] != DBNull.Value)
+                                {
+                                    newRow["IsSystemGenerated"] = Convert.ToBoolean(row["IsSystemGenerated"]);
+                                }
+                                else
+                                {
+                                    newRow["IsSystemGenerated"] = false;
+                                }
                                 bulkTable.Rows.Add(newRow);
                             }
                             #endregion
@@ -100,7 +132,7 @@ namespace WIPAT.DAL
                                 sqlBulkCopy.ColumnMappings.Add("Month", "Month");
                                 sqlBulkCopy.ColumnMappings.Add("Year", "Year");
                                 sqlBulkCopy.ColumnMappings.Add("POForecastMasterId", "POForecastMasterId");
-
+                                sqlBulkCopy.ColumnMappings.Add("IsSystemGenerated", "IsSystemGenerated");
                                 sqlBulkCopy.WriteToServer(bulkTable);
                             }
                             #endregion
@@ -123,139 +155,37 @@ namespace WIPAT.DAL
                 return new Response<string> { Success = false, Message = "Error initializing database operation: " + ex.Message };
             }
         }
-        public bool IsFileAlreadyImported(string fileName)
-        {
-            using (var context = new WIPATContext())
-            {
-                return context.ForecastMasters.Any(m => m.FileName == fileName);
-            }
-        }
-        #endregion save imported files
 
-        public ForecastFileData ForecastFileExists(string fileName) 
-        { using (var context = new WIPATContext()) 
-            { 
-                return context.ForecastMasters.Where(f => f.FileName == fileName).
-                    Select(f => new ForecastFileData { FileName = f.FileName, ProjectionMonth = f.Month, ProjectionYear =f.Year})
-                    .FirstOrDefault(); 
-            } 
-        }
-        public Response<DataTable> xGetForecastDataInDataTable(string fileName, string month, string year)
+        #region checks
+        public Response<ForecastFileData> IsFileAlreadyImported(string fileName)
         {
-            var response = new Response<DataTable>();
+            var response = new Response<ForecastFileData>();
             try
             {
                 using (var context = new WIPATContext())
                 {
-                    var forecast = context.ForecastMasters
-                        .Include(m => m.Details)
-                        .FirstOrDefault(m => m.FileName == fileName && m.Month == month && m.Year == year);
-
-                    if (forecast == null || forecast.Details == null || !forecast.Details.Any())
+                    // First, try to get the ForecastMaster by FileName
+                    var forecastMaster = context.ForecastMasters.Include(m => m.Details).FirstOrDefault(m => m.FileName == fileName);
+                    if (forecastMaster == null)
                     {
-                        response.Message = $"No forecast data found for file '{fileName}', month '{month}', and year '{year}'.";
+                        response.Message = $"No forecast file found with the name '{fileName}'.";
                         response.Status = StatusType.Warning;
-                        return response;
                     }
-
-                    // Convert details to DataTable
-                    DataTable table = new DataTable();
-                    table.Columns.Add("C-ASIN", typeof(string));
-                    //table.Columns.Add("Model Number", typeof(string));
-                    table.Columns.Add("Requested Quantity", typeof(int));
-                    table.Columns.Add("WIP", typeof(int));
-                    table.Columns.Add("Commitment period", typeof(string));
-                    table.Columns.Add("PO Date", typeof(DateTime));
-                    table.Columns.Add("Month", typeof(string));
-                    table.Columns.Add("Year", typeof(string));
-
-                    // Iterate over the forecast details
-                    foreach (var detail in forecast.Details)
+                    else
                     {
-                        table.Rows.Add(
-                            detail.CASIN,
-                            //detail.ModelNumber, 
-                            detail.RequestedQuantity,
-                             detail.Wip ?? null,
-                            detail.CommitmentPeriod,
-                            detail.PODate,
-                            detail.Month,
-                            detail.Year
-                        );
-                    }
-
-                    // Success
-                    response.Success = true;
-                    response.Message = $"Forecast data for file '{fileName}' retrieved successfully.";
-                    response.Data = table;
-
-                    return response;
-                }
-            }
-            catch (Exception ex)
-            {
-                response.Message = $"Exception occurred: {ex.Message}" + (ex.InnerException != null ? $" | Inner Exception: {ex.InnerException.Message}" : "");
-                return response;
-            }
-        }
-        public Response<DataTable> GetForecastDataInDataTable(string fileName, string month, string year)
-        {
-            var response = new Response<DataTable>();
-            try
-            {
-                using (var context = new WIPATContext())
-                {
-                    // Query only what you need
-                    var masterIds = context.ForecastMasters.AsNoTracking()
-                                    .Where(m => m.FileName == fileName && m.Month == month && m.Year == year)
-                                    .Select(m => m.Id);
-
-                    var rows = context.ForecastDetails.AsNoTracking()
-                        .Where(d => masterIds.Contains(d.POForecastMasterId))   // swap FK name if different
-                        .Select(d => new
+                        // return the basic forecast file info
+                        var forecastFileData = new ForecastFileData
                         {
-                            d.CASIN,
-                            d.RequestedQuantity,
-                            d.Wip,
-                            d.CommitmentPeriod,
-                            d.PODate,
-                            d.Month,
-                            d.Year
-                        })
-                        .ToList();
-                    if (rows == null)
-                    {
-                        response.Message = $"No forecast data found for file '{fileName}', month '{month}', and year '{year}'.";
-                        response.Status = StatusType.Warning;
-                        return response;
+                            FileName = forecastMaster.FileName,
+                            ProjectionMonth = forecastMaster.Month,
+                            ProjectionYear = forecastMaster.Year
+                        };
+
+                        response.Message = $"Forecast file '{fileName}' found successfully.";
+                        response.Status = StatusType.Success;
+                        response.Data = forecastFileData;
                     }
 
-                    // Build DataTable
-                    DataTable table = new DataTable();
-                    table.Columns.Add("C-ASIN", typeof(string));
-                    table.Columns.Add("Requested Quantity", typeof(int));
-                    table.Columns.Add("WIP", typeof(int));
-                    table.Columns.Add("Commitment period", typeof(string));
-                    table.Columns.Add("PO Date", typeof(DateTime));
-                    table.Columns.Add("Month", typeof(string));
-                    table.Columns.Add("Year", typeof(string));
-
-                    foreach (var d in rows)
-                    {
-                        table.Rows.Add(
-                            d.CASIN ?? (object)DBNull.Value,
-                            d.RequestedQuantity,
-                            d.Wip.HasValue ? (object)d.Wip.Value : DBNull.Value,
-                            d.CommitmentPeriod ?? (object)DBNull.Value,
-                            d.PODate,
-                            d.Month ?? (object)DBNull.Value,
-                            d.Year ?? (object)DBNull.Value
-                        );
-                    }
-
-                    response.Success = true;
-                    response.Message = $"Forecast data for file '{fileName}' retrieved successfully.";
-                    response.Data = table;
                     return response;
                 }
             }
@@ -267,64 +197,229 @@ namespace WIPAT.DAL
             }
         }
 
-
-        public Response<ForecastMaster> xGetForecastDataInObject(string fileName, string month, string year)
+        public bool IsProjectionAlreadyExists(string month, string year)
         {
-            var response = new Response<ForecastMaster>();
+            using (var context = new WIPATContext())
+            {
+                return context.ForecastMasters.Any(fm =>
+                fm.Month == month &&
+                fm.Year == year);
+
+            }
+        }
+
+        public bool IsWipAlreadyCalculated(string month, string year)
+        {
+            using (var context = new WIPATContext())
+            {
+                return context.ForecastMasters.Any(fm =>
+                fm.Month == month &&
+                fm.Year == year &&
+                fm.IsWipCalculated == true);
+            }
+
+        }
+
+        public Response<ForecastCheckResult> PerformForecastChecks2(string fileName, string month, string year)
+        {
+            var result = new Response<ForecastCheckResult>();
+            result.Data = new ForecastCheckResult();
+            result.Data.FileData = new ForecastFileData();
+            result.Data.FileData.FullTable = new DataTable();
+            result.Data.FileData.Forecast = new ForecastMaster();
+
+            #region input validation
+            if (string.IsNullOrEmpty(fileName))
+            {
+                result.Success = false;
+                result.Message = $"FileName Required";
+                return result;
+            }
+
+            if (string.IsNullOrEmpty(month))
+            {
+                result.Success = false;
+                result.Message = $"Projection Month Required";
+                return result;
+            }
+
+            if (string.IsNullOrEmpty(year))
+            {
+                result.Success = false;
+                result.Message = $"Projection Year Required";
+                return result;
+            }
+            #endregion input validation
+
             try
             {
                 using (var context = new WIPATContext())
                 {
-                    var forecast = context.ForecastMasters
-                        .Include(m => m.Details)
-                        .FirstOrDefault(m => m.FileName == fileName && m.Month == month && m.Year == year);
+                    var ForecastbyFileName = context.ForecastMasters.FirstOrDefault(fm => fm.FileName == fileName);
+                    var ForecastbyFileData = context.ForecastMasters.FirstOrDefault(fm => fm.Month == month && fm.Year == year);
+                    if (ForecastbyFileName != null)
+                    {
+                        result.Data.FileExists = true;
+                        if (ForecastbyFileName.IsWipCalculated)
+                        {
+                            result.Data.IsWipCalculated = true;
+                        }
+                    }
 
-                    if (forecast == null || forecast.Details == null || !forecast.Details.Any())
+
+                    if (ForecastbyFileData != null)
+                    {
+                        result.Data.ProjectionExists = true;
+                        if (ForecastbyFileData.IsWipCalculated)
+                        {
+                            result.Data.IsWipCalculated = true;
+                        }
+                    }
+
+
+                    if (result.Data.ProjectionExists || result.Data.FileExists)
+                    {
+                        var existingMessage = $"A forecast for {month} {year} already exists";
+                        if (result.Data.IsWipCalculated)
+                        {
+                            existingMessage = $"{existingMessage}, with WIP already calculated.\nYou cannot recalculate the WIP for {month} {year}.";
+                        }
+
+                        #region Load existing data
+                        var existingForecast = GetForecastDataFromDB(month, year);
+                        if (!existingForecast.Success)
+                        {
+                            result.Success = false;
+                            result.Message = $"{existingMessage} However, failed to load the existing forecast data: {existingForecast.Message}.";
+                            return result;
+                        }
+
+                        result.Success = false;
+
+                        //data
+                        result.Data.FileData.FullTable = existingForecast.Data.Item1;
+                        result.Data.FileData.Forecast = existingForecast.Data.Item2;
+
+                        //message
+                        result.Message = $"{existingMessage} and loaded.";
+
+                        if (result.Data.FileData.IsWipAlreadyCalculated)
+                        {
+                            result.Message = $"{existingMessage}, You can't calculate its wip";
+                        }
+                        else
+                        {
+                            result.Message = $"{existingMessage}";
+                        }
+
+                        //return
+                        return result;
+
+                        #endregion Load existing data
+                    }
+                    else
+                    {
+                        #region when no data found
+                        result.Success = true;
+                        result.Message = "No existing forecast with calculated WIP found. Ready to create new Wip.";
+
+                        // Set flags explicitly
+                        result.Data.FileExists = false;
+                        result.Data.ProjectionExists = false;
+                        result.Data.IsWipCalculated = false;
+
+                        result.Data.FileData.FullTable = new DataTable();  // empty table
+                        result.Data.FileData.Forecast = new ForecastMaster(); // empty forecast
+
+                        return result;
+                        #endregion
+                    }
+
+
+
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle any exceptions and return meaningful message
+                result.Data = new ForecastCheckResult();
+                result.Success = false;
+                result.Message = $"Exception occurred: {ex.Message}" +
+                                 (ex.InnerException != null ? $" | Inner Exception: {ex.InnerException.Message}" : "");
+            }
+
+            return result;
+        }
+
+        #endregion checks
+
+
+        #endregion save imported files
+
+
+        public Response<bool> IsWipCalculated(string month, string year)
+        {
+            var response = new Response<bool>();
+            try
+            {
+                using (var context = new WIPATContext())
+                {
+                    // Attempt to retrieve the ForecastMaster by file name
+                    var forecastMaster = context.ForecastMasters.FirstOrDefault(m => m.Month == month && m.Year == year);
+                    if (forecastMaster == null)
                     {
                         response.Success = false;
-                        response.Status = StatusType.Warning;
-                        response.Message = $"No forecast data found for file '{fileName}', month '{month}', and year '{year}'.";
+                        response.Message = $"No forecast file found with the for month '{month} {year}'.";
+                        response.Data = false;
+                        return response;
+                    }
+
+                    if (forecastMaster.IsWipCalculated == true)
+                    {
+                        response.Success = false;
+                        response.Message = $"WIP has already been calculated for {month} {year}. You cannot calculate it again.";
+                        response.Data = true;
                         return response;
                     }
 
                     response.Success = true;
-                    response.Status = StatusType.Success;
-                    response.Message = $"Forecast object for file '{fileName}' retrieved successfully.";
-                    response.Data = forecast;
+                    response.Message = $"WIP has not been calculated yet for {month} {year}. You may proceed with the calculation.";
+                    response.Data = false;
                     return response;
                 }
             }
             catch (Exception ex)
             {
                 response.Success = false;
-                response.Status = StatusType.Error;
-                response.Message = $"An error occurred while retrieving the forecast object: {ex.Message}" +
-                    (ex.InnerException != null ? $" | Inner Exception: {ex.InnerException.Message}" : "");
+                response.Message = $"An exception occurred: {ex.Message}" +
+                                   (ex.InnerException != null ? $" | Inner Exception: {ex.InnerException.Message}" : "");
+                response.Data = false;
                 return response;
             }
         }
-        public Response<ForecastMaster> GetForecastDataInObject(string fileName, string month, string year)
+
+        public Response<Tuple<DataTable, ForecastMaster>> GetForecastDataFromDB(string month, string year)
         {
-            var response = new Response<ForecastMaster>();
+            var response = new Response<Tuple<DataTable, ForecastMaster>>();
+
             try
             {
                 using (var context = new WIPATContext())
                 {
-
                     context.Database.CommandTimeout = 60;
 
+                    // Get ForecastMaster with Details
                     var master = context.ForecastMasters
                                 .AsNoTracking()
-                                .Where(m => m.FileName == fileName && m.Month == month && m.Year == year)
+                                .Where(m => m.Month == month && m.Year == year)
                                 .Include(m => m.Details)
                                 .FirstOrDefault();
-
 
                     if (master == null)
                     {
                         response.Success = false;
                         response.Status = StatusType.Warning;
-                        response.Message = $"No forecast found for file '{fileName}', month '{month}', and year '{year}'.";
+                        response.Message = $"No forecast found for '{month} {year}'.";
                         return response;
                     }
 
@@ -332,25 +427,56 @@ namespace WIPAT.DAL
                     {
                         response.Success = false;
                         response.Status = StatusType.Warning;
-                        response.Message = $"No forecast details found for file '{fileName}', month '{month}', and year '{year}'.";
+                        response.Message = $"No forecast details found for '{month} {year}'.";
                         return response;
                     }
 
+                    // Order the details by CASIN before adding them to the DataTable
+                    var orderedDetails = master.Details.OrderBy(d => d.CASIN).ToList();
+
+
+                    // Build DataTable
+                    DataTable table = new DataTable();
+                    table.Columns.Add("C-ASIN", typeof(string));
+                    table.Columns.Add("Requested Quantity", typeof(int));
+                    table.Columns.Add("WIP", typeof(int));
+                    table.Columns.Add("Commitment period", typeof(int));
+                    table.Columns.Add("PO Date", typeof(DateTime));
+                    table.Columns.Add("Month", typeof(string));
+                    table.Columns.Add("Year", typeof(string));
+
+                    //foreach (var d in master.Details)
+                    foreach (var d in orderedDetails)
+                    {
+                        table.Rows.Add(
+                            d.CASIN ?? (object)DBNull.Value,
+                            d.RequestedQuantity,
+                            d.Wip.HasValue ? (object)d.Wip.Value : DBNull.Value,
+                            d.CommitmentPeriod,
+                            d.PODate,
+                            d.Month ?? (object)DBNull.Value,
+                            d.Year ?? (object)DBNull.Value
+                        );
+                    }
+
+                    // Build response
                     response.Success = true;
                     response.Status = StatusType.Success;
-                    response.Message = $"Forecast object for file '{fileName}' retrieved successfully.";
-                    response.Data = master;
+                    response.Message = $"Forecast data for '{month} {year}' retrieved successfully.";
+                    response.Data = new Tuple<DataTable, ForecastMaster>(table, master);
                     return response;
                 }
             }
             catch (Exception ex)
             {
-                response.Success = false; response.Status = StatusType.Error; 
-                response.Message = $"An error occurred while retrieving the forecast object: {ex.Message}" + 
-                                    (ex.InnerException != null ? $" | Inner Exception: {ex.InnerException.Message}" : ""); 
+                response.Success = false;
+                response.Status = StatusType.Error;
+                response.Message = $"An exception occurred: {ex.Message}" +
+                                   (ex.InnerException != null ? $" | Inner Exception: {ex.InnerException.Message}" : "");
                 return response;
             }
         }
+
 
         #region wip helper
         public async Task<Response<bool>> NewUpdateWipInPOForecastDetailAsync(string asin, string month, string year, int? wipQty, string fileName, string targetMonth)
@@ -448,9 +574,6 @@ namespace WIPAT.DAL
         }
         #endregion wip helper
 
-
-        // using System.Data.Entity;   // already present above
-
         public ForecastMaster GetForecastMasterByFile(string fileName, string month, string year)
         {
             using (var context = new WIPATContext())
@@ -459,6 +582,42 @@ namespace WIPAT.DAL
                     .Include(m => m.Details)
                     .FirstOrDefault(m => m.FileName == fileName && m.Month == month && m.Year == year);
             }
+        }
+        public Response<List<ForecastMaster>> GetAvailableForecastsFromDB()
+        {
+            var response = new Response<List<ForecastMaster>>();
+
+            try
+            {
+                using (var context = new WIPATContext())
+                {
+                    var forecasts = context.ForecastMasters
+                          .Include(f => f.Details)
+                          .ToList();
+
+                    if (forecasts.Any())
+                    {
+                        response.Success = true;
+                        response.Message = "Successfully retrieved all forecasts.";
+                        response.Data = forecasts;
+                    }
+                    else
+                    {
+                        response.Success = true;
+                        response.Message = "No forecasts found.";
+                        response.Data = new List<ForecastMaster>();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                // This will now show up in your MessageBox if it fails again
+                response.Message = $"Error retrieving forecasts: {ex.Message}";
+                response.Data = null;
+            }
+
+            return response;
         }
 
 

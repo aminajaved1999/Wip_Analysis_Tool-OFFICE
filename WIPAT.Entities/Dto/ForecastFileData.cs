@@ -17,6 +17,7 @@ namespace WIPAT.Entities.Dto
         public string ProjectionMonth { get; set; }
         public string ProjectionYear { get; set; }
         public string ForecastFor { get; set; }
+        public bool IsWipAlreadyCalculated { get; set; }
         public ForecastMaster Forecast { get; set; }
 
         // NEW: UI Components

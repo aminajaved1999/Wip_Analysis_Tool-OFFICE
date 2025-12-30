@@ -16,10 +16,6 @@ namespace WIPAT.Helpers
 {
     public class ExcelHelper
     {
-
-
-
-
         /////////////////////////
         public static int GetCommitmentPeriod()
         {

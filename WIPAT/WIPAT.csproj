@@ -79,6 +79,7 @@
     <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=4.0.4.1, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <HintPath>packages\System.Runtime.CompilerServices.Unsafe.4.5.3\lib\net461\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
     </Reference>
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Security" />
     <Reference Include="System.Security.Cryptography.Xml, Version=8.0.0.2, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <HintPath>packages\System.Security.Cryptography.Xml.8.0.2\lib\net462\System.Security.Cryptography.Xml.dll</HintPath>
@@ -96,12 +97,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CalculateWIPForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="CalculateWIPForm.Designer.cs">
-      <DependentUpon>CalculateWIPForm.cs</DependentUpon>
-    </Compile>
     <Compile Include="ExportForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -128,6 +123,18 @@
     <Compile Include="MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="NewCalculateWIPForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="NewCalculateWIPForm.Designer.cs">
+      <DependentUpon>NewCalculateWIPForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="NewUploadForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="NewUploadForm.Designer.cs">
+      <DependentUpon>NewUploadForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SplashScreen.cs">
@@ -136,15 +143,7 @@
     <Compile Include="SplashScreen.Designer.cs">
       <DependentUpon>SplashScreen.cs</DependentUpon>
     </Compile>
-    <Compile Include="UploadForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="UploadForm.Designer.cs">
-      <DependentUpon>UploadForm.cs</DependentUpon>
-    </Compile>
-    <EmbeddedResource Include="CalculateWIPForm.resx">
-      <DependentUpon>CalculateWIPForm.cs</DependentUpon>
-    </EmbeddedResource>
+    <Compile Include="UITheme.cs" />
     <EmbeddedResource Include="ExportForm.resx">
       <DependentUpon>ExportForm.cs</DependentUpon>
     </EmbeddedResource>
@@ -156,6 +155,12 @@
     </EmbeddedResource>
     <EmbeddedResource Include="MainForm.resx">
       <DependentUpon>MainForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="NewCalculateWIPForm.resx">
+      <DependentUpon>NewCalculateWIPForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="NewUploadForm.resx">
+      <DependentUpon>NewUploadForm.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
@@ -169,9 +174,6 @@
     </Compile>
     <EmbeddedResource Include="SplashScreen.resx">
       <DependentUpon>SplashScreen.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="UploadForm.resx">
-      <DependentUpon>UploadForm.cs</DependentUpon>
     </EmbeddedResource>
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">

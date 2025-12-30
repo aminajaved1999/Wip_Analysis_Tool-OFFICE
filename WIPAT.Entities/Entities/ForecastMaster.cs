@@ -20,6 +20,8 @@ namespace WIPAT.Entities
         public DateTime? UpdatedAt { get; set; }
         public string CreatedBy { get; set; }
         public bool IsWipCalculated { get; set; }
+        public bool IsWipModifiedByUser { get; set; }
+
 
         // Navigation
         public virtual ICollection<ForecastDetail> Details { get; set; }

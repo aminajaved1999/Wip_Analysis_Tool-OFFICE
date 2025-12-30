@@ -29,7 +29,12 @@ namespace WIPAT
             this.menuStrip = new System.Windows.Forms.MenuStrip();
             this.viewMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.itemsCatalogueMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.addItemsToCatalogueToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.calculatedWipsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.xToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.editToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.addItemsToCatalogueToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
+            this.editCalculatedWipsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.xToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
             this.stepperPanel.SuspendLayout();
             this.statusStrip.SuspendLayout();
             this.menuStrip.SuspendLayout();
@@ -44,7 +49,7 @@ namespace WIPAT
             this.stepperPanel.Controls.Add(this.step2);
             this.stepperPanel.Controls.Add(this.step1);
             this.stepperPanel.Dock = System.Windows.Forms.DockStyle.Top;
-            this.stepperPanel.Location = new System.Drawing.Point(0, 25);
+            this.stepperPanel.Location = new System.Drawing.Point(0, 24);
             this.stepperPanel.Name = "stepperPanel";
             this.stepperPanel.Size = new System.Drawing.Size(1200, 70);
             this.stepperPanel.TabIndex = 0;
@@ -117,9 +122,9 @@ namespace WIPAT
             this.mainPanel.AutoScroll = true;
             this.mainPanel.BackColor = System.Drawing.Color.White;
             this.mainPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.mainPanel.Location = new System.Drawing.Point(0, 95);
+            this.mainPanel.Location = new System.Drawing.Point(0, 94);
             this.mainPanel.Name = "mainPanel";
-            this.mainPanel.Size = new System.Drawing.Size(1200, 583);
+            this.mainPanel.Size = new System.Drawing.Size(1200, 584);
             this.mainPanel.TabIndex = 1;
             // 
             // statusStrip
@@ -134,49 +139,89 @@ namespace WIPAT
             // statusLabel
             // 
             this.statusLabel.Name = "statusLabel";
-            this.statusLabel.Size = new System.Drawing.Size(44, 17);
+            this.statusLabel.Size = new System.Drawing.Size(39, 17);
             this.statusLabel.Text = "Ready";
             // 
             // menuStrip
             // 
             this.menuStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.viewMenuItem});
+            this.viewMenuItem,
+            this.editToolStripMenuItem});
             this.menuStrip.Location = new System.Drawing.Point(0, 0);
             this.menuStrip.Name = "menuStrip";
-            this.menuStrip.Size = new System.Drawing.Size(1200, 25);
+            this.menuStrip.Size = new System.Drawing.Size(1200, 24);
             this.menuStrip.TabIndex = 0;
             // 
             // viewMenuItem
             // 
             this.viewMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.itemsCatalogueMenuItem,
-            this.addItemsToCatalogueToolStripMenuItem});
+            this.calculatedWipsToolStripMenuItem});
             this.viewMenuItem.Name = "viewMenuItem";
-            this.viewMenuItem.Size = new System.Drawing.Size(47, 21);
+            this.viewMenuItem.Size = new System.Drawing.Size(44, 20);
             this.viewMenuItem.Text = "View";
             // 
             // itemsCatalogueMenuItem
             // 
             this.itemsCatalogueMenuItem.Name = "itemsCatalogueMenuItem";
-            this.itemsCatalogueMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.itemsCatalogueMenuItem.Size = new System.Drawing.Size(187, 22);
             this.itemsCatalogueMenuItem.Text = "Items Catalogue";
             this.itemsCatalogueMenuItem.Click += new System.EventHandler(this.ItemsCatalogueMenuItem_Click);
             // 
-            // addItemsToCatalogueToolStripMenuItem
+            // calculatedWipsToolStripMenuItem
             // 
-            this.addItemsToCatalogueToolStripMenuItem.Name = "addItemsToCatalogueToolStripMenuItem";
-            this.addItemsToCatalogueToolStripMenuItem.Size = new System.Drawing.Size(214, 22);
-            this.addItemsToCatalogueToolStripMenuItem.Text = "Add Items to Catalogue";
-            this.addItemsToCatalogueToolStripMenuItem.Click += new System.EventHandler(this.addItemsToCatalogueToolStripMenuItem_Click);
+            this.calculatedWipsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.xToolStripMenuItem});
+            this.calculatedWipsToolStripMenuItem.Name = "calculatedWipsToolStripMenuItem";
+            this.calculatedWipsToolStripMenuItem.Size = new System.Drawing.Size(187, 22);
+            this.calculatedWipsToolStripMenuItem.Text = "View Calculated WIPs";
+            this.calculatedWipsToolStripMenuItem.Click += new System.EventHandler(this.calculatedWipsToolStripMenuItem_Click);
+            // 
+            // xToolStripMenuItem
+            // 
+            this.xToolStripMenuItem.Name = "xToolStripMenuItem";
+            this.xToolStripMenuItem.Size = new System.Drawing.Size(80, 22);
+            this.xToolStripMenuItem.Text = "x";
+            // 
+            // editToolStripMenuItem
+            // 
+            this.editToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.addItemsToCatalogueToolStripMenuItem1,
+            this.editCalculatedWipsToolStripMenuItem});
+            this.editToolStripMenuItem.Name = "editToolStripMenuItem";
+            this.editToolStripMenuItem.Size = new System.Drawing.Size(39, 20);
+            this.editToolStripMenuItem.Text = "Edit";
+            // 
+            // addItemsToCatalogueToolStripMenuItem1
+            // 
+            this.addItemsToCatalogueToolStripMenuItem1.Name = "addItemsToCatalogueToolStripMenuItem1";
+            this.addItemsToCatalogueToolStripMenuItem1.Size = new System.Drawing.Size(200, 22);
+            this.addItemsToCatalogueToolStripMenuItem1.Text = "Add Items To Catalogue";
+            this.addItemsToCatalogueToolStripMenuItem1.Click += new System.EventHandler(this.addItemsToCatalogueToolStripMenuItem_Click);
+            // 
+            // editCalculatedWipsToolStripMenuItem
+            // 
+            this.editCalculatedWipsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.xToolStripMenuItem1});
+            this.editCalculatedWipsToolStripMenuItem.Name = "editCalculatedWipsToolStripMenuItem";
+            this.editCalculatedWipsToolStripMenuItem.Size = new System.Drawing.Size(200, 22);
+            this.editCalculatedWipsToolStripMenuItem.Text = "Edit Calculated Wips";
+            this.editCalculatedWipsToolStripMenuItem.Click += new System.EventHandler(this.editCalculatedWipsToolStripMenuItem_Click);
+            // 
+            // xToolStripMenuItem1
+            // 
+            this.xToolStripMenuItem1.Name = "xToolStripMenuItem1";
+            this.xToolStripMenuItem1.Size = new System.Drawing.Size(180, 22);
+            this.xToolStripMenuItem1.Text = "x";
             // 
             // MainForm
             // 
-            this.Icon = Properties.Resources.icon;
             this.ClientSize = new System.Drawing.Size(1200, 700);
             this.Controls.Add(this.mainPanel);
             this.Controls.Add(this.stepperPanel);
             this.Controls.Add(this.statusStrip);
             this.Controls.Add(this.menuStrip);
+            this.Icon = global::WIPAT.Properties.Resources.icon;
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "WIP Analysis Tool";
@@ -204,6 +249,11 @@ namespace WIPAT
         private System.Windows.Forms.MenuStrip menuStrip;
         private System.Windows.Forms.ToolStripMenuItem viewMenuItem;
         private System.Windows.Forms.ToolStripMenuItem itemsCatalogueMenuItem;
-        private ToolStripMenuItem addItemsToCatalogueToolStripMenuItem;
+        private ToolStripMenuItem editToolStripMenuItem;
+        private ToolStripMenuItem addItemsToCatalogueToolStripMenuItem1;
+        private ToolStripMenuItem calculatedWipsToolStripMenuItem;
+        private ToolStripMenuItem xToolStripMenuItem;
+        private ToolStripMenuItem editCalculatedWipsToolStripMenuItem;
+        private ToolStripMenuItem xToolStripMenuItem1;
     }
 }

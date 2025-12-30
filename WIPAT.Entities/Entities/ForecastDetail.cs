@@ -13,11 +13,13 @@ namespace WIPAT.Entities
         public int Id { get; set; }
         //excel column
         public string CASIN { get; set; }
+        //public int ItemCatalogueId { get; set; }  // FK
+
         public string ModelNumber { get; set; }
         public int RequestedQuantity { get; set; }
         public int? Wip { get; set; }
 
-        public string CommitmentPeriod { get; set; }
+        public int CommitmentPeriod { get; set; }
 
         public DateTime PODate { get; set; }
 
@@ -25,11 +27,15 @@ namespace WIPAT.Entities
 
         public string Month { get; set; }
         public string Year { get; set; }
+        public bool IsSystemGenerated { get; set; }
 
         // Foreign Key
         public int POForecastMasterId { get; set; }
 
         [ForeignKey("POForecastMasterId")]
         public virtual ForecastMaster Master { get; set; }
+
+        //[ForeignKey(nameof(ItemCatalogueId))]
+        //public ItemCatalogue ItemCatalogue { get; set; }
     }
 }

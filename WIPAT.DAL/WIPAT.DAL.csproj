@@ -52,7 +52,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Class1.cs" />
     <Compile Include="ForecastRepository.cs" />
     <Compile Include="ItemsRepository.cs" />
     <Compile Include="Migrations\Configuration.cs" />

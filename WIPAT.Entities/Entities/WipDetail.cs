@@ -29,6 +29,9 @@ namespace WIPAT.Entities
         public int? CasePack_Wip { get; set; }
         public int? CasePack { get; set; }
         public int? UserWipQty { get; set; }
+        //--
+        public string DocNo { get; set; }
+        public string FillStatus { get; set; }
 
         [ForeignKey(nameof(WipMaster_Id))]
         public virtual WipMaster Master { get; set; }

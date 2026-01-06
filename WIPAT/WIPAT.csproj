@@ -97,70 +97,70 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ExportForm.cs">
+    <Compile Include="Forms\ExportForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="ExportForm.Designer.cs">
+    <Compile Include="Forms\ExportForm.Designer.cs">
       <DependentUpon>ExportForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="ForecastFileDataGridView.cs">
+    <Compile Include="Helpers\ForecastFileDataGridView.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="ForecastFileDataGridView.Designer.cs">
+    <Compile Include="Helpers\ForecastFileDataGridView.Designer.cs">
       <DependentUpon>ForecastFileDataGridView.cs</DependentUpon>
     </Compile>
     <Compile Include="Helpers\BusyOverlayHelper.cs" />
     <Compile Include="Helpers\ExcelHelper.cs" />
-    <Compile Include="LoginForm.cs">
+    <Compile Include="Forms\LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="LoginForm.Designer.cs">
+    <Compile Include="Forms\LoginForm.Designer.cs">
       <DependentUpon>LoginForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="MainForm.cs">
+    <Compile Include="Forms\MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="MainForm.Designer.cs">
+    <Compile Include="Forms\MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="NewCalculateWIPForm.cs">
+    <Compile Include="Forms\CalculateWIPForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="NewCalculateWIPForm.Designer.cs">
-      <DependentUpon>NewCalculateWIPForm.cs</DependentUpon>
+    <Compile Include="Forms\CalculateWIPForm.Designer.cs">
+      <DependentUpon>CalculateWIPForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="NewUploadForm.cs">
+    <Compile Include="Forms\UploadForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="NewUploadForm.Designer.cs">
-      <DependentUpon>NewUploadForm.cs</DependentUpon>
+    <Compile Include="Forms\UploadForm.Designer.cs">
+      <DependentUpon>UploadForm.cs</DependentUpon>
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="SplashScreen.cs">
+    <Compile Include="Forms\SplashScreen.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="SplashScreen.Designer.cs">
+    <Compile Include="Forms\SplashScreen.Designer.cs">
       <DependentUpon>SplashScreen.cs</DependentUpon>
     </Compile>
-    <Compile Include="UITheme.cs" />
-    <EmbeddedResource Include="ExportForm.resx">
+    <Compile Include="Helpers\UITheme.cs" />
+    <EmbeddedResource Include="Forms\ExportForm.resx">
       <DependentUpon>ExportForm.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="ForecastFileDataGridView.resx">
+    <EmbeddedResource Include="Helpers\ForecastFileDataGridView.resx">
       <DependentUpon>ForecastFileDataGridView.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="LoginForm.resx">
+    <EmbeddedResource Include="Forms\LoginForm.resx">
       <DependentUpon>LoginForm.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="MainForm.resx">
+    <EmbeddedResource Include="Forms\MainForm.resx">
       <DependentUpon>MainForm.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="NewCalculateWIPForm.resx">
-      <DependentUpon>NewCalculateWIPForm.cs</DependentUpon>
+    <EmbeddedResource Include="Forms\CalculateWIPForm.resx">
+      <DependentUpon>CalculateWIPForm.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="NewUploadForm.resx">
-      <DependentUpon>NewUploadForm.cs</DependentUpon>
+    <EmbeddedResource Include="Forms\UploadForm.resx">
+      <DependentUpon>UploadForm.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
@@ -172,7 +172,7 @@
       <DependentUpon>Resources.resx</DependentUpon>
       <DesignTime>True</DesignTime>
     </Compile>
-    <EmbeddedResource Include="SplashScreen.resx">
+    <EmbeddedResource Include="Forms\SplashScreen.resx">
       <DependentUpon>SplashScreen.cs</DependentUpon>
     </EmbeddedResource>
     <None Include="packages.config" />

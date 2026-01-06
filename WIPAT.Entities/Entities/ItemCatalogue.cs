@@ -25,14 +25,5 @@ namespace WIPAT.Entities
         public int? CasePackQty { get; set; }
     }
 
-    public class ItemCatalogueDto
-    {
-        public string Casin { get; set; }
-        public string Model { get; set; }
-        public string Description { get; set; }
-        public string ColorName { get; set; }
-        public string Size { get; set; }
-        public string PCPK { get; set; }
-        public int? CasePackQty { get; set; }
-    }
+    
 }

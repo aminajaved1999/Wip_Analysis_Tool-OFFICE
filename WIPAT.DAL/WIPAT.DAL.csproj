@@ -52,16 +52,16 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ForecastRepository.cs" />
-    <Compile Include="ItemsRepository.cs" />
+    <Compile Include="Repository\ForecastRepository.cs" />
+    <Compile Include="Repository\ItemsRepository.cs" />
     <Compile Include="Migrations\Configuration.cs" />
-    <Compile Include="MiscellaneousRepository.cs" />
-    <Compile Include="OrderRepository.cs" />
+    <Compile Include="Repository\MiscellaneousRepository.cs" />
+    <Compile Include="Repository\OrderRepository.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="StockRepository.cs" />
-    <Compile Include="UserRepository.cs" />
-    <Compile Include="WIPATContext.cs" />
-    <Compile Include="WipRepository.cs" />
+    <Compile Include="Repository\StockRepository.cs" />
+    <Compile Include="Repository\UserRepository.cs" />
+    <Compile Include="Repository\WIPATContext.cs" />
+    <Compile Include="Repository\WipRepository.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WIPAT.Entities\WIPAT.Entities.csproj">

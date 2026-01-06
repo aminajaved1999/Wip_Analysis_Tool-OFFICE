@@ -64,12 +64,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ItemManager.cs" />
-    <Compile Include="NewFilesManager.cs" />
-    <Compile Include="NewWipManager.cs" />
+    <Compile Include="Manager\FilesManager.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Utilities.cs" />
-    <Compile Include="WipManager2.cs" />
+    <Compile Include="AllColumnNames.cs" />
+    <Compile Include="Manager\WipManager.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WIPAT.DAL\WIPAT.DAL.csproj">

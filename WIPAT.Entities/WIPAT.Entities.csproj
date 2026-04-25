@@ -54,6 +54,9 @@
   <ItemGroup>
     <Compile Include="BO\InvalidOrder.cs" />
     <Compile Include="BO\InvalidStock.cs" />
+    <Compile Include="Dto\OrderImportResult.cs" />
+    <Compile Include="Dto\OrderMasterDto.cs" />
+    <Compile Include="Dto\SimulationInputData.cs" />
     <Compile Include="Dto\ForecastCheckResult.cs" />
     <Compile Include="Dto\ItemCatalogueDto.cs" />
     <Compile Include="Dto\OrderFileResponse.cs" />
@@ -61,8 +64,10 @@
     <Compile Include="Entities\BaseEntity.cs" />
     <Compile Include="Entities\OrderDetail.cs" />
     <Compile Include="Entities\OrderMaster.cs" />
+    <Compile Include="Enum\AllColumnNames.cs" />
     <Compile Include="Enum\ExcelSheetNames.cs" />
     <Compile Include="Enum\ForecastExcelColumns.cs" />
+    <Compile Include="Enum\OrderDocType.cs" />
     <Compile Include="Enum\StockOrderExcelColumns.cs" />
     <Compile Include="BO\WipSession.cs" />
     <Compile Include="Dto\ForecastFileData.cs" />

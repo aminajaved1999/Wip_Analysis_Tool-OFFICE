@@ -15,4 +15,15 @@ namespace WIPAT.Entities.BO
         public string FileName { get; set; }
     }
 
+    public class ValidOrder
+    {
+        public int ItemCatalogueId { get; set; }
+        public string Casin { get; set; }
+        public string Quantity { get; set; }
+        public string Month { get; set; }
+        public string Year { get; set; }
+        public string FileName { get; set; }
+    }
+
+
 }

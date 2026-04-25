@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.Drawing;
 using System.Globalization;
@@ -7,30 +8,38 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL;
+using WIPAT.BLL.Interfaces;
+using WIPAT.BLL.Managers;
+using WIPAT.BLL.Services;
 using WIPAT.DAL;
+using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
 using WIPAT.Helpers;
+using static System.Collections.Specialized.BitVector32;
 
 namespace WIPAT
 {
-    public partial class NewUploadForm : Form
+    public partial class UploadForm : Form
     {
         public event Action InputsChanged;
 
         #region State & Dependencies
         private readonly WipSession _session;
         private readonly Action<string, StatusType> _setStatus;
-        //private readonly FilesManager _filesManager;
-        private readonly NewFilesManager _filesManager;
         private readonly BusyOverlayHelper _busyHelper;
 
         private List<ForecastFileData> _forecastFiles;
 
+        // Injected Managers (BLL)
+        private readonly IExcelService _excelSerice;
+        private readonly IForecastManager _forecastManager;
+        private readonly IOrderManager _orderManager;
         // Repositories
-        private readonly ForecastRepository _forecastRepository;
-        private readonly OrderRepository _orderRepository;
+        private readonly IForecastRepository _forecastRepository;
+        private readonly IOrderRepository _orderRepository;
+        private readonly IItemsRepository _itemsRepository;
 
         private int _commitmentPeriod = 0;
         private bool _orderUploaded = false;
@@ -41,12 +50,30 @@ namespace WIPAT
         private TextBox _txtSearchOrder_Real;
         #endregion
 
-        public NewUploadForm(WipSession session, Action<string, StatusType> setStatus)
+        #region Constructor
+        public UploadForm(
+                    WipSession session,
+                    IExcelService excelSerice,
+                    IForecastManager forecastManager,
+                    IOrderManager orderManager,
+                    IForecastRepository forecastRepository,
+                    IOrderRepository orderRepository,
+                    IItemsRepository itemsRepository,
+                    Action<string, StatusType> setStatus)
+
         {
-            // Initialize State (Keep existing code)
+            // Validate dependencies
+            _session = session ?? throw new ArgumentNullException(nameof(session));
+            _excelSerice = excelSerice ?? throw new ArgumentNullException(nameof(excelSerice));
+            _forecastManager = forecastManager ?? throw new ArgumentNullException(nameof(forecastManager));
+            _orderManager = orderManager ?? throw new ArgumentNullException(nameof(orderManager));
+            _forecastRepository = forecastRepository ?? throw new ArgumentNullException(nameof(forecastRepository));
+            _orderRepository = orderRepository ?? throw new ArgumentNullException(nameof(orderRepository));
+            _itemsRepository = itemsRepository ?? throw new ArgumentNullException(nameof(itemsRepository));
+            _setStatus = setStatus;
+
+            // Initialize State
             _forecastFiles = new List<ForecastFileData>();
-            _forecastRepository = new ForecastRepository();
-            _orderRepository = new OrderRepository(session);
 
             InitializeComponent();
             _session = session;
@@ -73,36 +100,33 @@ namespace WIPAT
             SetupModernSearchBars(); // We will update this method next
 
             _busyHelper = new BusyOverlayHelper(this, progressBarTop, SetStatusThreadSafe);
-            _filesManager = new NewFilesManager(
-                session: _session,
-                showBusy: msg => _busyHelper.ShowBusy(msg),
-                hideBusy: () => _busyHelper.HideBusy(),
-                setStatus: (m, t) => SetStatus(m, t)
-            );
-
-            _commitmentPeriod = ExcelHelper.GetCommitmentPeriod();
+            
+            _commitmentPeriod = GetCommitmentPeriodFromConfig();
             _session.CommitmentPeriod = _commitmentPeriod;
 
             ApplyModernStyleToGrids(); // We will update this method next
 
-            this.FormClosing += (s, e) => {
+            this.FormClosing += (s, e) =>
+            {
                 if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; this.Hide(); }
             };
+
         }
 
-        protected override void OnShown(EventArgs e)
-        {
-            base.OnShown(e);
-            RebindFromSession();
+        #endregion Constructor
 
-            // Load both dropdowns
+        #region 1. UI Setup & Styling
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+
+            // 1. Load the Dropdown Data from DB
             LoadForecastDropdown();
             LoadOrderDropdown();
 
-            this.ActiveControl = null;
+            // 2. Restore any existing session state
+            RebindFromSession();
         }
-
-        #region 1. UI Setup & Styling
 
         private void SetupModernSearchBars()
         {
@@ -151,10 +175,10 @@ namespace WIPAT
         private void ApplyModernStyleToGrids()
         {
             // Use the central theme logic
-            UITheme.StyleGrid(dgvForecast1);
-            UITheme.StyleGrid(dgvForecast2);
-            UITheme.StyleGrid(dgvOrder);
-            UITheme.StyleGrid(dgvOrderErrors, isError: true);
+            UITheme.StyleGrid(dgvForecast1, true);
+            UITheme.StyleGrid(dgvForecast2, true);
+            UITheme.StyleGrid(dgvOrder, true);
+            UITheme.StyleGrid(dgvOrderErrors, false);
         }
 
         private Panel CreateModernSearchBar(out TextBox refTextBox)
@@ -167,7 +191,8 @@ namespace WIPAT
             container.Padding = new Padding(10, 7, 10, 5);
             container.Cursor = Cursors.IBeam;
 
-            container.Paint += (s, e) => {
+            container.Paint += (s, e) =>
+            {
                 // Draw a simple border
                 ControlPaint.DrawBorder(e.Graphics, container.ClientRectangle,
                     Color.Silver, 1, ButtonBorderStyle.Solid, // Left
@@ -195,13 +220,15 @@ namespace WIPAT
             txt.ForeColor = Color.Gray;
             txt.Text = "Search C-ASIN...";
 
-            txt.GotFocus += (s, e) => {
+            txt.GotFocus += (s, e) =>
+            {
                 if (txt.Text == "Search C-ASIN...") { txt.Text = ""; txt.ForeColor = Color.Black; }
                 // On Focus: Turn White to look active
                 container.BackColor = UITheme.SurfaceWhite;
                 txt.BackColor = UITheme.SurfaceWhite;
             };
-            txt.LostFocus += (s, e) => {
+            txt.LostFocus += (s, e) =>
+            {
                 if (string.IsNullOrWhiteSpace(txt.Text)) { txt.Text = "Search C-ASIN..."; txt.ForeColor = Color.Gray; }
                 // Lost Focus: Go back to Gray
                 container.BackColor = UITheme.BackgroundCanvas;
@@ -250,7 +277,6 @@ namespace WIPAT
             string selectedMonth = parts[0];
             string selectedYear = parts[1];
 
-            // --- SYMMETRICAL VALIDATION LOGIC ---
 
             // Scenario A: Rolling Forward (User has Month 1 & 2, selects Month 3)
             if (_forecastFiles.Count == 2)
@@ -339,15 +365,16 @@ namespace WIPAT
             try
             {
                 // 2. Preview File (Get Dates)
-                var previewResponse = await _filesManager.GetForecastFilePreviewAsync(filePath, _commitmentPeriod);
+                var previewResponse = await _forecastManager.GetForecastFilePreviewAsync(filePath, _commitmentPeriod);
                 if (!previewResponse.Success)
                 {
-                    SetStatus(previewResponse.Message, StatusType.Error);
+                    _busyHelper.HideBusy(); // Hide early if failing here
+                    SetStatusThreadSafe(previewResponse.Message, StatusType.Error);
                     return;
                 }
 
                 var newFile = previewResponse.Data;
-                _busyHelper.HideBusy(); // Hide to show dialogs
+                _busyHelper.HideBusy(); // Hide to show dialogs safely
 
                 // 3. Consecutive Logic
                 if (_forecastFiles.Count == 1)
@@ -367,7 +394,7 @@ namespace WIPAT
                         }
                         else
                         {
-                            SetStatus("Upload cancelled.", StatusType.Warning);
+                            SetStatusThreadSafe("Upload cancelled.", StatusType.Warning);
                             return;
                         }
                     }
@@ -378,7 +405,7 @@ namespace WIPAT
 
                 // Create a copy to pass to manager
                 var currentListCopy = new List<ForecastFileData>(_forecastFiles);
-                var result = await Task.Run(() => _filesManager.HandleForecastFileAsync(filePath, currentListCopy, _commitmentPeriod, _session));
+                var result = await Task.Run(() => _forecastManager.HandleForecastFileAsync(filePath, currentListCopy, _commitmentPeriod, _session));
 
                 if (result.Success)
                 {
@@ -391,22 +418,22 @@ namespace WIPAT
                     if (result.Message.Contains("IGNORED") || result.Message.Contains("already exists"))
                     {
                         MessageBox.Show(result.Message, "Existing Record Loaded", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        SetStatus($"Existing Forecast loaded: {newFile.ProjectionMonth}", StatusType.Warning);
+                        SetStatusThreadSafe($"Existing Forecast loaded: {newFile.ProjectionMonth}", StatusType.Warning);
                     }
                     else
                     {
-                        SetStatus($"Forecast Loaded: {newFile.ProjectionMonth} {newFile.ProjectionYear}", StatusType.Success);
+                        SetStatusThreadSafe($"Forecast Loaded: {newFile.ProjectionMonth} {newFile.ProjectionYear}", StatusType.Success);
                     }
                 }
                 else
                 {
-                    SetStatus(result.Message, StatusType.Error);
+                    SetStatusThreadSafe(result.Message, StatusType.Error);
                     MessageBox.Show(result.Message, "Upload Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
             catch (Exception ex)
             {
-                SetStatus($"Error: {ex.Message}", StatusType.Error);
+                SetStatusThreadSafe($"Error: {ex.Message}", StatusType.Error);
             }
             finally
             {
@@ -483,7 +510,7 @@ namespace WIPAT
             _busyHelper.ShowBusy($"Loading Orders {sel}...");
             try
             {
-                var result = await Task.Run(() => _filesManager.LoadExistingOrderAsync(parts[0], parts[1]));
+                var result = await Task.Run(() => _orderManager.LoadExistingOrderAsync(parts[0], parts[1]));
                 HandleOrderLoadResult(result.Success, result.Data, result.Message);
             }
             finally
@@ -508,12 +535,11 @@ namespace WIPAT
             _busyHelper.ShowBusy("Processing Order File...");
             try
             {
-                var result = await Task.Run(() => _filesManager.HandleOrderFile(filePath, false, _session));
-
+                var result = await Task.Run(() => _orderManager.HandleOrderFileAsync(filePath, _session));
                 if (!result.Success)
                 {
                     // Handle specifically if validation failed inside Manager (Missing Orders)
-                    if (result.Data != null && result.Data.MissingOrders !=null && result.Data.MissingOrders.Any())
+                    if (result.Data != null && result.Data.MissingOrders != null && result.Data.MissingOrders.Any())
                     {
                         SetStatus("Order file contains invalid items.", StatusType.Error);
                         dgvOrderErrors.DataSource = result.Data.MissingOrders;
@@ -525,11 +551,11 @@ namespace WIPAT
                 }
 
                 // Check Dates NOW that we have data
-                if (result.Data.DataTable.Rows.Count > 0)
+                if (result.Data.ValidOrders.Count > 0)
                 {
-                    DataRow r = result.Data.DataTable.Rows[0];
-                    string m = r["Month"]?.ToString();
-                    string y = r["Year"]?.ToString();
+                    var r = result.Data.ValidOrders.FirstOrDefault();
+                    string m = r.Month;
+                    string y = r.Year;
 
                     if (!ValidateOrderPrerequisites(m, y)) return;
 
@@ -561,25 +587,22 @@ namespace WIPAT
             _busyHelper.ShowBusy($"Loading {month} {year}...");
             try
             {
-                var result = await Task.Run(() => _filesManager.LoadExistingForecastAsync(month, year));
+                var result = await Task.Run(() => _forecastManager.LoadExistingForecastAsync(month, year));
+
+                // HIDE BUSY FIRST
+                _busyHelper.HideBusy();
 
                 if (result.Success)
                 {
                     var loadedFile = result.Data;
 
-                    // ---------------------------------------------------------
-                    // FIX: Check if WIP is already calculated and alert the user
-                    // ---------------------------------------------------------
                     if (loadedFile.IsWipAlreadyCalculated)
                     {
                         MessageBox.Show(
                             $"WIP for {month} {year} is already calculated.\nYou cannot calculate it again.",
-                            "WIP Already Calculated",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Information);
+                            "WIP Already Calculated", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
 
-                    // If rolling forward (Case 1 from Dropdown), we remove the old one now
                     if (_forecastFiles.Count >= 2)
                     {
                         _forecastFiles.RemoveAt(0);
@@ -590,16 +613,20 @@ namespace WIPAT
                     await UpdateSessionAsync();
                     InputsChanged?.Invoke();
 
-                    SetStatus($"Loaded {month} {year} successfully.", StatusType.Success);
+                    // FIX: Queue Success message safely behind the HideBusy reset
+                    SetStatusThreadSafe($"Loaded {month} {year} successfully.", StatusType.Success);
                 }
                 else
                 {
-                    SetStatus(result.Message, StatusType.Error);
+                    // FIX
+                    SetStatusThreadSafe(result.Message, StatusType.Error);
                 }
             }
-            finally
+            catch (Exception ex)
             {
                 _busyHelper.HideBusy();
+                // FIX
+                SetStatusThreadSafe($"Error: {ex.Message}", StatusType.Error);
             }
         }
 
@@ -650,8 +677,7 @@ namespace WIPAT
 
         private async Task UpdateSessionAsync()
         {
-            var itemsRepository = new ItemsRepository();
-            var resItemsCatalogue = await itemsRepository.GetItemCatalogues();
+            var resItemsCatalogue = await _itemsRepository.GetItemCatalogues();
             if (resItemsCatalogue.Success)
             {
                 _session.ItemCatalogue = resItemsCatalogue.Data;
@@ -813,8 +839,72 @@ namespace WIPAT
 
         private void SetStatus(string msg, StatusType type) => _setStatus?.Invoke(msg, type);
         private void SetStatusThreadSafe(string msg, StatusType type) => BeginInvoke(new Action(() => SetStatus(msg, type)));
-        private void btnExportErrors_Click(object sender, EventArgs e) => MessageBox.Show("Export functionality to be implemented.");
+        private void btnExportErrors_Click(object sender, EventArgs e)
+        {
+            if (dgvOrderErrors.Rows.Count == 0)
+            {
+                MessageBox.Show("No error records to export.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (SaveFileDialog sfd = new SaveFileDialog())
+            {
+                sfd.Filter = "Excel Workbook|*.xlsx";
+                sfd.Title = "Save Error Report";
+                sfd.FileName = $"Upload_Errors_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+
+                if (sfd.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        _busyHelper.ShowBusy("Exporting Error Report...");
+                        _excelSerice.ExportGridToExcel(dgvOrderErrors, sfd.FileName, "Invalid Orders");
+
+                        MessageBox.Show("Error report exported successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Export Failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    finally
+                    {
+                        _busyHelper.HideBusy();
+                    }
+                }
+            }
+        }
 
         #endregion
+
+        private void tabControlMain_Selecting(object sender, TabControlCancelEventArgs e)
+        {
+            // Check if the clicked tab is our special "New Form" tab
+            if (e.TabPage == tabOpenNewForm)
+            {
+                // 1. Cancel the navigation so we don't go to the blank tab
+                e.Cancel = true;
+
+                // 2. Open your new form
+                var myNewForm = new OrderEntryForm(_session, _orderManager, _excelSerice); 
+                myNewForm.Show();
+            }
+        }
+
+        public static int GetCommitmentPeriodFromConfig()
+        {
+            string setting = ConfigurationManager.AppSettings["CommitmentPeriod"];
+
+            if (string.IsNullOrEmpty(setting))
+            {
+                throw new ConfigurationErrorsException("AppSetting 'CommitmentPeriod' is missing or empty.");
+            }
+
+            if (!int.TryParse(setting, out int parsedValue))
+            {
+                throw new ConfigurationErrorsException($"AppSetting 'CommitmentPeriod' is not a valid integer: '{setting}'.");
+            }
+
+            return parsedValue;
+        }
     }
 }

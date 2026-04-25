@@ -12,6 +12,7 @@ namespace WIPAT.Entities
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
         //excel column
+        public int? ItemCatalogueId { get; set; } // FK
         public string CASIN { get; set; }
         //public int ItemCatalogueId { get; set; }  // FK
 
@@ -35,7 +36,7 @@ namespace WIPAT.Entities
         [ForeignKey("POForecastMasterId")]
         public virtual ForecastMaster Master { get; set; }
 
-        //[ForeignKey(nameof(ItemCatalogueId))]
-        //public ItemCatalogue ItemCatalogue { get; set; }
+        [ForeignKey(nameof(ItemCatalogueId))]
+        public ItemCatalogue ItemCatalogue { get; set; }
     }
 }

@@ -10,7 +10,9 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL;
+using WIPAT.BLL.Interfaces;
 using WIPAT.DAL;
+using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Enum;
 using WIPAT.Helpers;
@@ -25,9 +27,10 @@ namespace WIPAT
         private readonly WipSession _session;
         private readonly Action<string, StatusType> _setStatus;
 
-        private readonly WipManager2 wipManager2;
-        private readonly WipRepository wipRepository;
-        private readonly StockRepository stockRepository;
+        private readonly IWipManager _wipManager;
+        private readonly IWipRepository _wipRepository;
+        private readonly INewWorkingWipManager _newWorkingWipManager;
+        private readonly IStockRepository _stockRepository;
 
         private int percentage;
         private string WipProcessingType;
@@ -46,7 +49,13 @@ namespace WIPAT
 
         #region Constructor & Load
 
-        public CalculateWIPForm(WipSession session, Action<string, StatusType> setStatus)
+        public CalculateWIPForm(WipSession session, 
+            Action<string, StatusType> setStatus, 
+            IWipManager wipManager,
+            IWipRepository wipRepository,
+            IStockRepository stockRepository,
+            INewWorkingWipManager newWorkingWipManager
+            )
         {
             InitializeComponent();
 
@@ -72,9 +81,10 @@ namespace WIPAT
             _setStatus = setStatus;
 
             // Initialize Managers
-            stockRepository = new StockRepository(_session);
-            wipManager2 = new WipManager2(_session);
-            wipRepository = new WipRepository();
+            _stockRepository = stockRepository;
+            _wipManager = wipManager;
+            _wipRepository = wipRepository;
+            _newWorkingWipManager = newWorkingWipManager;
 
             // Initialize Helpers
             _busyHelper = new BusyOverlayHelper(this, progressBar1, SetStatusThreadSafe);
@@ -229,9 +239,11 @@ namespace WIPAT
                 await Task.Yield(); // Free up UI thread momentarily
 
                 // 
+                if (WipProcessingType == ProcessingWipType.NewWorking.ToString())
+                {
 
-                var tableResponse = await Task.Run(() =>
-                                    wipManager2.BuildCommonWipDataTable(
+                    var tableResponse = await Task.Run(() =>
+                                    _newWorkingWipManager.BuildCommonWipDataTable(
                                         _session.AsinList,
                                         _session.Prev,
                                         _session.Curr,
@@ -245,15 +257,44 @@ namespace WIPAT
                                     )
                                 );
 
-                if (!tableResponse.Success)
-                {
-                    SetStatus($"Error generating stock table: {tableResponse.Message}", StatusType.Error);
-                    return;
-                }
+                    if (!tableResponse.Success)
+                    {
+                        SetStatus($"Error generating stock table: {tableResponse.Message}", StatusType.Error);
+                        return;
+                    }
 
-                // 4. Update State
-                StockDataTable = tableResponse.Data;
-                FinalDataTable = tableResponse.Data;
+                    // 4. Update State
+                    StockDataTable = tableResponse.Data;
+                    FinalDataTable = tableResponse.Data;
+                }
+                else
+                {
+                        var tableResponse = await Task.Run(() =>
+                                        _wipManager.BuildCommonWipDataTable(
+                                            _session.AsinList,
+                                            _session.Prev,
+                                            _session.Curr,
+                                            _session.Curr.ForecastingFor,
+                                            _session.WipType,
+                                            _session.ItemCatalogue,
+                                            MOQ,
+                                            checkBoxCasePack.Checked,
+                                            WipProcessingType,
+                                            percentage
+                                        )
+                                    );
+
+                    if (!tableResponse.Success)
+                    {
+                        SetStatus($"Error generating stock table: {tableResponse.Message}", StatusType.Error);
+                        return;
+                    }
+
+                    // 4. Update State
+                    StockDataTable = tableResponse.Data;
+                    FinalDataTable = tableResponse.Data;
+                }
+               
 
                 // 5. Show Results
                 _busyHelper.ShowBusy("Rendering Final Table...");
@@ -312,7 +353,8 @@ namespace WIPAT
 
                 _busyHelper.ShowBusy("Saving Records to Database...");
 
-                var saveResponse = await wipManager2.SaveWipRecordsAsync(FinalDataTable, WipProcessingType, wipColName, StockDataTable);
+                //var saveResponse = await _wipManager.SaveWipRecordsAsync(FinalDataTable, WipProcessingType, wipColName, StockDataTable, _session);
+                var saveResponse = await _newWorkingWipManager.SaveWipRecordsAsync(FinalDataTable, WipProcessingType, wipColName, StockDataTable, _session);
 
                 if (!saveResponse.Success)
                 {
@@ -351,7 +393,7 @@ namespace WIPAT
         private bool ValidateSessionAndInputs()
         {
             // Database Checks
-            var checkPrevious = wipRepository.CheckIfWipCalculated(_session.Prev.Month, _session.Prev.Year);
+            var checkPrevious = _wipRepository.CheckIfWipCalculated(_session.Prev.Month, _session.Prev.Year);
             if (checkPrevious.Success)
             {
                 string msg = $"{checkPrevious.Message}\nCalculate Wip of '{_session.Prev.Month} {_session.Prev.Year}' before calculating {_session.Curr.Month} {_session.Curr.Year}";
@@ -360,12 +402,12 @@ namespace WIPAT
                 return false;
             }
 
-            //var checkCurrent = wipRepository.CheckIfWipCalculated(_session.Curr.Month, _session.Curr.Year);
-            //if (!checkCurrent.Success && checkCurrent.Data)
-            //{
-            //    SetStatus(checkCurrent.Message, StatusType.Error);
-            //    return false;
-            //}
+            var checkCurrent = _wipRepository.CheckIfWipCalculated(_session.Curr.Month, _session.Curr.Year);
+            if (!checkCurrent.Success && checkCurrent.Data)
+            {
+                SetStatus(checkCurrent.Message, StatusType.Error);
+                return false;
+            }
 
             // Data Readiness Checks
             if (!TryValidateReadyForCalculation(out var missingMsg, checkBoxCasePack.Checked))
@@ -389,6 +431,7 @@ namespace WIPAT
             if (radioButtonMonthOfSupply.Checked) return ProcessingWipType.MonthOfSupply.ToString();
             if (radioButtonPercentage.Checked) return ProcessingWipType.Percentage.ToString();
             if (radioButtonSystem.Checked) return ProcessingWipType.System.ToString();
+            if (radioButtonNewWorking.Checked) return ProcessingWipType.NewWorking.ToString();
             return string.Empty;
         }
 
@@ -602,16 +645,5 @@ namespace WIPAT
         #endregion
     }
 
-    public static class GuiHelper
-    {
-        private const int EM_SETCUEBANNER = 0x1501;
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        private static extern Int32 SendMessage(IntPtr hWnd, int msg, int wParam, [MarshalAs(UnmanagedType.LPWStr)] string lParam);
-
-        public static void SetPlaceholder(TextBox textBox, string placeholderText)
-        {
-            SendMessage(textBox.Handle, EM_SETCUEBANNER, 0, placeholderText);
-        }
-    }
+   
 }

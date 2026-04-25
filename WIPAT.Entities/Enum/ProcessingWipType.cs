@@ -11,5 +11,6 @@ namespace WIPAT.Entities.Enum
         MonthOfSupply,
         Percentage,
         System,
+        NewWorking
     }
 }

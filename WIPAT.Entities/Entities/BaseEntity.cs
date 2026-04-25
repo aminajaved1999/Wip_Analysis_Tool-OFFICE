@@ -9,7 +9,7 @@ namespace WIPAT.Entities
 {
     public abstract class BaseEntity
     {
-        public DateTime CreatedAt { get; set; }
+        public DateTime? CreatedAt { get; set; }
 
         // Navigation properties
         public int? CreatedById { get; set; }

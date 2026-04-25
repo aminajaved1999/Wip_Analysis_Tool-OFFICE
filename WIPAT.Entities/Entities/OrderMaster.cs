@@ -16,9 +16,10 @@ namespace WIPAT.Entities.Entities
         public string DocType { get; set; } //S -> ship, A-actual order
         public string DocNo { get; set; }
         public string FileName { get; set; }
+        public DateTime? CreatedAt { get; set; }
+        public int? CreatedById { get; set; }
 
         public virtual ICollection<OrderDetail> Details { get; set; }
-
 
     }
 }

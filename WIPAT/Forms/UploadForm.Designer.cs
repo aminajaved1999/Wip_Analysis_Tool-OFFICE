@@ -1,6 +1,6 @@
 ﻿namespace WIPAT
 {
-    partial class NewUploadForm
+    partial class UploadForm
     {
         /// <summary>
         /// Required designer variable.
@@ -52,6 +52,7 @@
             this.pnlOrderHeader = new System.Windows.Forms.Panel();
             this.btnBrowseOrder = new System.Windows.Forms.Button();
             this.cmbDbOrders = new System.Windows.Forms.ComboBox();
+            this.tabOpenNewForm = new System.Windows.Forms.TabPage();
             this.tabControlMain.SuspendLayout();
             this.tabForecast.SuspendLayout();
             this.tableLayoutForecasts.SuspendLayout();
@@ -73,12 +74,14 @@
             // 
             this.tabControlMain.Controls.Add(this.tabForecast);
             this.tabControlMain.Controls.Add(this.tabOrder);
+            this.tabControlMain.Controls.Add(this.tabOpenNewForm);
             this.tabControlMain.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabControlMain.Location = new System.Drawing.Point(0, 0);
             this.tabControlMain.Name = "tabControlMain";
             this.tabControlMain.SelectedIndex = 0;
             this.tabControlMain.Size = new System.Drawing.Size(1100, 750);
             this.tabControlMain.TabIndex = 0;
+            this.tabControlMain.Selecting += new System.Windows.Forms.TabControlCancelEventHandler(this.tabControlMain_Selecting);
             // 
             // tabForecast
             // 
@@ -344,14 +347,24 @@
             this.cmbDbOrders.TabIndex = 1;
             this.cmbDbOrders.SelectionChangeCommitted += new System.EventHandler(this.cmbDbOrders_SelectionChangeCommitted);
             // 
-            // NewUploadForm
+            // tabOpenNewForm
+            // 
+            this.tabOpenNewForm.Location = new System.Drawing.Point(4, 22);
+            this.tabOpenNewForm.Name = "tabOpenNewForm";
+            this.tabOpenNewForm.Padding = new System.Windows.Forms.Padding(3);
+            this.tabOpenNewForm.Size = new System.Drawing.Size(1092, 724);
+            this.tabOpenNewForm.TabIndex = 2;
+            this.tabOpenNewForm.Text = "  Open Other Tool  ";
+            this.tabOpenNewForm.UseVisualStyleBackColor = true;
+            // 
+            // UploadForm
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
             this.BackColor = System.Drawing.Color.White;
             this.ClientSize = new System.Drawing.Size(1100, 750);
             this.Controls.Add(this.tabControlMain);
             this.Font = new System.Drawing.Font("Segoe UI", 10F);
-            this.Name = "NewUploadForm";
+            this.Name = "UploadForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "Data Upload Manager";
             this.tabControlMain.ResumeLayout(false);
@@ -378,6 +391,7 @@
         private System.Windows.Forms.TabControl tabControlMain;
         private System.Windows.Forms.TabPage tabForecast;
         private System.Windows.Forms.TabPage tabOrder;
+        private System.Windows.Forms.TabPage tabOpenNewForm; 
 
         // Forecast Controls
         private System.Windows.Forms.Panel pnlForecastHeader;

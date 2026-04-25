@@ -1,31 +1,32 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
+using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
-using WIPAT.Entities.Dto;
 
 namespace WIPAT.DAL
 {
-    public class MiscellaneousRepository
+    public class MiscellaneousRepository : IMiscellaneousRepository
     {
-        public async Task<bool> addMiscellaneousAsin(List<Miscellaneous> MiscItems)
+        private readonly WIPATContext _context;
+
+        public MiscellaneousRepository(WIPATContext context)
+        {
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+        }
+
+        public async Task<bool> AddMiscellaneousAsin(List<Miscellaneous> miscItems)
         {
             try
             {
-                using (var _context = new WIPATContext())
-                {
-                    _context.Miscellaneous.AddRange(MiscItems);
-                    await _context.SaveChangesAsync();
-                }
+                _context.Miscellaneous.AddRange(miscItems);
+                await _context.SaveChangesAsync();
                 return true;
             }
             catch (Exception)
             {
-                return false; 
+                return false;
             }
         }
-
     }
 }

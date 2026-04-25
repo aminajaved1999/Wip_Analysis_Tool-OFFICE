@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
-using WIPAT.BLL;
 using WIPAT.DAL;
+using WIPAT.Entities;
 
 namespace WIPAT
 {
@@ -12,21 +12,24 @@ namespace WIPAT
 
         private readonly string usernamePlaceholder = "Username";
         private readonly string passwordPlaceholder = "Password";
-        private UserRepository userRepository;
+        private readonly UserRepository _userRepository;
+        // Program.cs will read this property to get the logged-in user
+        public User AuthenticatedUser { get; private set; }
 
         #endregion
 
         #region Constructor & Initialization
 
-        public LoginForm()
+        public LoginForm(UserRepository userRepository)
         {
             InitializeComponent();
 
-            // Add outlines to panels after InitializeComponent
-            AddOutlineToPanel(this, this.leftPanel);
-            AddOutlineToPanel(this, this.rightPanel);
+            // Validate dependencies
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
 
-            userRepository = new UserRepository();
+            // Add outlines to panels
+            if (this.leftPanel != null) AddOutlineToPanel(this, this.leftPanel);
+            if (this.rightPanel != null) AddOutlineToPanel(this, this.rightPanel);
 
             // Set initial placeholder text
             SetPlaceholder(usernameTextBox, usernamePlaceholder);
@@ -39,18 +42,73 @@ namespace WIPAT
             passwordTextBox.GotFocus += RemovePlaceholderText;
             passwordTextBox.LostFocus += AddPlaceholderText;
 
-            // Smooth painting + Enter triggers Sign In
+            // Smooth painting
             this.DoubleBuffered = true;
+
+            // Set "Enter" key to trigger Sign In
             this.AcceptButton = signInButton;
 
-            // Key handling (Enter to sign in)
-            usernameTextBox.KeyDown += usernameTextBox_KeyDown;
-            passwordTextBox.KeyDown += passwordTextBox_KeyDown;
-
-            // Drag handlers (attach these to the form or a top bar panel as needed)
+            // Drag handlers
             this.MouseDown += Form_MouseDown;
             this.MouseMove += Form_MouseMove;
             this.MouseUp += Form_MouseUp;
+        }
+
+        #endregion
+
+        #region Sign-In Flow
+
+        private void signInButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Ignore placeholder text when checking input
+                string username = usernameTextBox.Text == usernamePlaceholder ? "" : usernameTextBox.Text.Trim();
+                string password = passwordTextBox.Text == passwordPlaceholder ? "" : passwordTextBox.Text;
+
+                if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                {
+                    MessageBox.Show("Please enter both username and password.", "Input Required",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // Validate against DB
+                var response = _userRepository.ValidateUser(username, password);
+
+                if (response.Success)
+                {
+                    // 1. Store the successful user object
+                    this.AuthenticatedUser = response.Data;
+
+                    // 2. Set the result to OK so Program.cs knows to proceed
+                    this.DialogResult = DialogResult.OK;
+
+                    // 3. Close this form (Program.cs will resume execution)
+                    this.Close();
+                }
+                else
+                {
+                    MessageBox.Show($"{response.Message}", "Login Failed",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                    // Clear password field for retry
+                    passwordTextBox.Text = "";
+                    passwordTextBox.Focus();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Exception occurred: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void closeButton_Click(object sender, EventArgs e)
+        {
+            // Set result to Cancel so Program.cs exits the app
+            this.DialogResult = DialogResult.Cancel;
+            this.Close();
         }
 
         #endregion
@@ -104,55 +162,6 @@ namespace WIPAT
 
         #endregion
 
-        #region Sign-In Flow
-
-        private void signInButton_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                // Ignore placeholder text when checking input
-                string username = usernameTextBox.Text == usernamePlaceholder ? "" : usernameTextBox.Text.Trim();
-                string password = passwordTextBox.Text == passwordPlaceholder ? "" : passwordTextBox.Text;
-
-                if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-                {
-                    MessageBox.Show("Please enter both username and password.", "Input Required",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-
-                var response = userRepository.ValidateUser(username, password);
-
-                if (response.Success)
-                {
-                    MainForm mainForm = new MainForm(response.Data);
-                    mainForm.Show();
-                    this.Hide();
-                }
-                else
-                {
-                    MessageBox.Show($"{response.Message}", "Login Failed",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    passwordTextBox.Clear();
-                    passwordTextBox.Focus();
-                }
-            }
-            catch (Exception ex)
-            {
-                // Log or handle the exception here as needed
-                MessageBox.Show($"Exception occurred: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-
-        private void closeButton_Click(object sender, EventArgs e)
-        {
-            this.Close();
-        }
-
-        #endregion
-
         #region Window Dragging
 
         private void Form_MouseDown(object sender, MouseEventArgs e)
@@ -199,13 +208,15 @@ namespace WIPAT
 
         #region Keyboard Handlers
 
+        // Since we set this.AcceptButton = signInButton, these specific handlers 
+        // are technically redundant for the "Enter" key, but good to keep if you add other logic later.
         private void usernameTextBox_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter)
             {
                 signInButton.PerformClick();
                 e.Handled = true;
-                e.SuppressKeyPress = true; // Prevents beep sound
+                e.SuppressKeyPress = true;
             }
         }
 

@@ -2,193 +2,181 @@
 using System.Collections.Generic;
 using System.Data.Entity;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
+using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 
 namespace WIPAT.DAL
 {
-    public class ItemsRepository
+    public class ItemsRepository : IItemsRepository
     {
+        private readonly WIPATContext _context;
+
+        public ItemsRepository(WIPATContext context)
+        {
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+        }
+
         public async Task<Response<List<ItemCatalogue>>> GetItemCatalogues()
         {
-            var res = new Response<List<ItemCatalogue>>();
             try
             {
+                var items = await _context.ItemCatalogues.Where(i=> i.isActive == true).ToListAsync();
 
-                using (var _context = new WIPATContext())
+                if (items != null && items.Count > 0)
                 {
-                    var ItemCatalogues = await _context.ItemCatalogues.ToListAsync();
-
-                    if (ItemCatalogues != null)
+                    return new Response<List<ItemCatalogue>>
                     {
-                        res.Success = true;
-                        res.Data = ItemCatalogues;
-                        res.Message = "ItemCatalogues retrieved successfully";
-                    }
-                    else
-                    {
-                        res.Success = false;
-                        res.Data = null;
-                        res.Message = "No ItemCatalogues found";
-                    }
-                    return res;
+                        Success = true,
+                        Data = items,
+                        Message = "ItemCatalogues retrieved successfully"
+                    };
                 }
+
+                return new Response<List<ItemCatalogue>>
+                {
+                    Success = false,
+                    Data = null,
+                    Message = "No ItemCatalogues found"
+                };
             }
             catch (Exception ex)
             {
-                res.Success = false;
-                res.Message = ex.Message;
-                return res;
-
+                return new Response<List<ItemCatalogue>> { Success = false, Message = ex.Message };
             }
         }
 
         public int GetItemIdByAsin(string asin)
         {
-            using (var context = new WIPATContext())
-            {
-                var item = context.ItemCatalogues.FirstOrDefault(i => i.Casin == asin);
-                return item?.Id ?? 0;
-            }
+            var item = _context.ItemCatalogues
+                               .AsNoTracking().Where(i => i.isActive == true)
+                               .FirstOrDefault(i => i.Casin == asin);
+            return item?.Id ?? 0;
         }
 
-        // Checks if a C-ASIN exists in the item catalogue
         public bool IsCAsinExistInCatalogue(string casin)
         {
-            using (var _context = new WIPATContext())
-            {
-                return _context.ItemCatalogues.Any(item => item.Casin == casin);
-            }
+            return _context.ItemCatalogues.Any(item => item.Casin == casin && item.isActive == true);
         }
 
-        // Returns the item by C-ASIN, or null if not found
         public ItemCatalogue GetItemByCAsin(string casin)
         {
-            using (var _context = new WIPATContext())
-            {
-                return _context.ItemCatalogues.FirstOrDefault(item => item.Casin == casin);
-            }
+            return _context.ItemCatalogues
+                           .AsNoTracking()
+                           .FirstOrDefault(item => item.Casin == casin && item.isActive == true);
         }
 
         public bool AddItemToCatalogue(string casin, string itemName = null, string description = null)
         {
             try
             {
-                using (var _context = new WIPATContext())
+                bool exists = _context.ItemCatalogues.Any(item => item.Casin == casin && item.isActive == true);
+                if (exists)
                 {
-                    // First check if already exists
-                    bool exists = _context.ItemCatalogues.Any(item => item.Casin == casin);
-                    if (exists) return true; // Already in catalogue, treat as success
-
-                    var newItem = new ItemCatalogue
-                    {
-                        Casin = casin,
-                        Description = description ?? string.Empty,
-                        CreatedAt = DateTime.Now,           
-                    };
-
-                    _context.ItemCatalogues.Add(newItem);
-                    _context.SaveChanges();
-
                     return true;
                 }
+
+                var newItem = new ItemCatalogue
+                {
+                    Casin = casin,
+                    Description = description ?? string.Empty,
+                    CreatedAt = DateTime.Now,
+                };
+
+                _context.ItemCatalogues.Add(newItem);
+                _context.SaveChanges();
+
+                return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                // log ex if you have logging
+                // In a real scenario, log the exception
                 return false;
             }
         }
 
-
         public async Task<Response<bool>> IsCasinExistInCatalogueAndInitialStock(string casin)
         {
-            var res = new Response<bool>();
             try
             {
-                using (var _context = new WIPATContext())
+                // Check if the casin exists in ItemCatalogue
+                bool existsInCatalogue = await _context.ItemCatalogues.AnyAsync(item => item.Casin == casin && item.isActive == true);
+
+                // Check if the casin exists in InitialStock
+                //bool existsInInitialStock = await _context.InitialStocks.AnyAsync(stock => stock.ItemCatalogue.Casin == casin);
+                bool existsInInitialStock = await _context.InitialStocks.AnyAsync(stock => stock.ItemCatalogue.Casin == casin && stock.ItemCatalogue.isActive);
+
+
+                if (existsInCatalogue || existsInInitialStock)
                 {
-                    // Check if the casin exists in ItemCatalogue
-                    bool existsInCatalogue = await _context.ItemCatalogues.AnyAsync(item => item.Casin == casin);
-
-                    // Check if the casin exists in InitialStock
-                    bool existsInInitialStock = await _context.InitialStocks.AnyAsync(stock => stock.ItemCatalogue.Casin == casin);
-
-                    // Combine both checks and set response
-                    if (existsInCatalogue || existsInInitialStock)
+                    string msg;
+                    if (existsInCatalogue && existsInInitialStock)
                     {
-                        res.Success = true;
-                        res.Data = true;
-
-                        // Provide detailed message based on which condition was true
-                        if (existsInCatalogue && existsInInitialStock)
-                        {
-                            res.Message = $"The Casin '{casin}' exists in both the Item Catalogue and the Initial Stock.";
-                        }
-                        else if (existsInCatalogue)
-                        {
-                            res.Message = $"The Casin '{casin}' exists in the Item Catalogue, but not in the Initial Stock.";
-                        }
-                        else
-                        {
-                            res.Message = $"The Casin '{casin}' exists in the Initial Stock, but not in the Item Catalogue.";
-                        }
+                        msg = $"The Casin '{casin}' exists in both the Item Catalogue and the Initial Stock.";
+                    }
+                    else if (existsInCatalogue)
+                    {
+                        msg = $"The Casin '{casin}' exists in the Item Catalogue, but not in the Initial Stock.";
                     }
                     else
                     {
-                        res.Success = false;
-                        res.Data = false;
-                        res.Message = $"The Casin '{casin}' was not found in either the Item Catalogue or the Initial Stock. Please ensure the correct Casin code is entered.";
+                        msg = $"The Casin '{casin}' exists in the Initial Stock, but not in the Item Catalogue.";
                     }
 
-                    return res;
+                    return new Response<bool> { Success = true, Data = true, Message = msg };
                 }
+
+                return new Response<bool>
+                {
+                    Success = false,
+                    Data = false,
+                    Message = $"The Casin '{casin}' was not found in either the Item Catalogue or the Initial Stock."
+                };
             }
             catch (Exception ex)
             {
-                res.Success = false;
-                res.Data = false;
-                res.Message = $"An error occurred while checking the Casin '{casin}': {ex.Message}. Please try again or contact support if the issue persists.";
-                return res;
+                return new Response<bool>
+                {
+                    Success = false,
+                    Data = false,
+                    Message = $"Error checking Casin '{casin}': {ex.Message}"
+                };
             }
         }
+
         public async Task<Response<bool>> IsItemExistInCatalogue(string asin)
         {
-            var res = new Response<bool>();
             try
             {
-                using (var _context = new WIPATContext())
+                bool existsInCatalogue = await _context.ItemCatalogues.AnyAsync(item => item.Casin == asin && item.isActive == true );
+
+                if (existsInCatalogue)
                 {
-                    // Check if the ASIN exists in ItemCatalogue
-                    bool existsInCatalogue = await _context.ItemCatalogues.AnyAsync(item => item.Casin == asin);
-
-                    // Set response based on existence of ASIN in the catalogue
-                    if (existsInCatalogue)
+                    return new Response<bool>
                     {
-                        res.Success = true;
-                        res.Data = true;
-                        res.Message = $"The ASIN '{asin}' exists in the Item Catalogue.";
-                    }
-                    else
-                    {
-                        res.Success = false;
-                        res.Data = false;
-                        res.Message = $"The ASIN '{asin}' was not found in the Item Catalogue. Please ensure the correct ASIN is entered.";
-                    }
-
-                    return res;
+                        Success = true,
+                        Data = true,
+                        Message = $"The CASIN '{asin}' exists in the Item Catalogue."
+                    };
                 }
+
+                return new Response<bool>
+                {
+                    Success = false,
+                    Data = false,
+                    Message = $"The CASIN '{asin}' was not found in the Item Catalogue."
+                };
             }
             catch (Exception ex)
             {
-                res.Success = false;
-                res.Data = false;
-                res.Message = $"An error occurred while checking the ASIN '{asin}': {ex.Message}. Please try again or contact support if the issue persists.";
-                return res;
+                return new Response<bool>
+                {
+                    Success = false,
+                    Data = false,
+                    Message = $"Error checking ASIN '{asin}': {ex.Message}"
+                };
             }
         }
-
     }
 }

@@ -1,5 +1,4 @@
-﻿// BusyOverlayHelper.cs
-using System;
+﻿using System;
 using System.Windows.Forms;
 using WIPAT.Entities.Enum;
 
@@ -14,7 +13,10 @@ namespace WIPAT.Helpers
         public BusyOverlayHelper(Form parentForm, ProgressBar progressBar, Action<string, StatusType> setStatus)
         {
             _parentForm = parentForm ?? throw new ArgumentNullException(nameof(parentForm));
-            _progressBar = progressBar ?? throw new ArgumentNullException(nameof(progressBar));
+
+            // FIX: Allow progressBar to be null. Do not throw exception.
+            _progressBar = progressBar;
+
             _setStatus = setStatus;
         }
 
@@ -31,10 +33,16 @@ namespace WIPAT.Helpers
         {
             SafeUI(() =>
             {
-                _setStatus?.Invoke(message, StatusType.Transparent); // or StatusType.Busy if you have one
-                _progressBar.Visible = true;
-                _progressBar.Style = ProgressBarStyle.Marquee;
-                _parentForm.UseWaitCursor = true; // optional
+                _setStatus?.Invoke(message, StatusType.Transparent);
+
+                // FIX: Check for null before accessing
+                if (_progressBar != null)
+                {
+                    _progressBar.Visible = true;
+                    _progressBar.Style = ProgressBarStyle.Marquee;
+                }
+
+                _parentForm.UseWaitCursor = true;
             });
         }
 
@@ -42,12 +50,14 @@ namespace WIPAT.Helpers
         {
             SafeUI(() =>
             {
-               // _setStatus?.Invoke("", StatusType.Reset); // restore to a neutral style
-                _progressBar.Visible = false;
-                _parentForm.UseWaitCursor = false; // optional
+                // FIX: Check for null before accessing
+                if (_progressBar != null)
+                {
+                    _progressBar.Visible = false;
+                }
+
+                _parentForm.UseWaitCursor = false;
             });
         }
-
-
     }
 }

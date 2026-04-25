@@ -12,6 +12,7 @@ namespace WIPAT.Entities
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
         public int? WipMaster_Id { get; set; }
+        public int? ItemCatalogueId { get; set; } // FK
         public string CASIN { get; set; }
         public string Month { get; set; }
         public string Year { get; set; }
@@ -32,9 +33,12 @@ namespace WIPAT.Entities
         //--
         public string DocNo { get; set; }
         public string FillStatus { get; set; }
+        public double? ForecastData { get; set; }
 
         [ForeignKey(nameof(WipMaster_Id))]
         public virtual WipMaster Master { get; set; }
 
+        [ForeignKey(nameof(ItemCatalogueId))]
+        public ItemCatalogue ItemCatalogue { get; set; }
     }
 }

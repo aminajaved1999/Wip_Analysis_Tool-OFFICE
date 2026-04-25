@@ -47,8 +47,8 @@ namespace WIPAT.Helpers
                 btn.MouseLeave += (s, e) => btn.BackColor = AccentGreen;
             }
         }
-            
-        public static void StyleGrid(DataGridView dgv, bool isError = false)
+
+        public static void xStyleGrid(DataGridView dgv, bool isError = false)
         {
             dgv.BackgroundColor = SurfaceWhite;
             dgv.BorderStyle = BorderStyle.None;
@@ -68,5 +68,46 @@ namespace WIPAT.Helpers
             dgv.DefaultCellStyle.Font = new Font("Segoe UI", 9);
             dgv.RowTemplate.Height = 35;
         }
+
+        public static void StyleGrid(DataGridView dgv, bool isValid)
+        {
+            // --- 1. Common Base Styling (Applied to both) ---
+            dgv.BackgroundColor = SurfaceWhite;
+            dgv.BorderStyle = BorderStyle.None;
+            dgv.EnableHeadersVisualStyles = false;
+            dgv.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            dgv.GridColor = Color.FromArgb(240, 240, 240);
+
+            // Common Header Settings
+            dgv.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9, FontStyle.Bold);
+            dgv.ColumnHeadersHeight = 45;
+
+            // Common Row Settings
+            dgv.DefaultCellStyle.SelectionBackColor = Color.FromArgb(232, 240, 254);
+            dgv.DefaultCellStyle.SelectionForeColor = Color.Black;
+            dgv.DefaultCellStyle.Font = new Font("Segoe UI", 9);
+            dgv.RowTemplate.Height = 35;
+
+            // --- 2. Conditional Styling (Valid vs. Invalid) ---
+            if (isValid)
+            {
+                // Valid Style (Blue Header, White Rows)
+                dgv.ColumnHeadersDefaultCellStyle.BackColor = PrimaryBlue;
+                dgv.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+
+                dgv.DefaultCellStyle.BackColor = Color.White;
+                dgv.DefaultCellStyle.ForeColor = Color.Black;
+            }
+            else
+            {
+                // Invalid Style (Red Header, Light Red Rows)
+                dgv.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(220, 53, 69); // Red
+                dgv.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+
+                dgv.DefaultCellStyle.BackColor = Color.FromArgb(255, 235, 238); // Pale Red
+                dgv.DefaultCellStyle.ForeColor = Color.FromArgb(114, 28, 36);  // Dark Red Text
+            }
+        }
+
     }
 }

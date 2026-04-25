@@ -64,10 +64,26 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Manager\FilesManager.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="AllColumnNames.cs" />
+    <Compile Include="Interfaces\IExcelService.cs" />
+    <Compile Include="Interfaces\IForecastManager.cs" />
+    <Compile Include="Interfaces\IOrderManager.cs" />
+    <Compile Include="Interfaces\IStockManager.cs" />
+    <Compile Include="Interfaces\INewWorkingWipManager.cs" />
+    <Compile Include="Interfaces\IWipManager.cs" />
+    <Compile Include="Manager\ExcelService.cs" />
+    <Compile Include="Manager\NewWorkingWipManager.cs" />
+    <Compile Include="Manager\OrderManager.cs" />
+    <Compile Include="Manager\StockManager.cs" />
     <Compile Include="Manager\WipManager.cs" />
+    <Compile Include="Strategies\IWipCalculationStrategy.cs" />
+    <Compile Include="Strategies\IWipStrategyFactory.cs" />
+    <Compile Include="Strategies\MonthOfSupplyStrategy.cs" />
+    <Compile Include="Strategies\PercentageStrategy.cs" />
+    <Compile Include="Strategies\SystemStrategy.cs" />
+    <Compile Include="Strategies\WipCalculationContext.cs" />
+    <Compile Include="Manager\ForecastManager.cs" />
+    <Compile Include="_Manager\FilesManager.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WIPAT.DAL\WIPAT.DAL.csproj">

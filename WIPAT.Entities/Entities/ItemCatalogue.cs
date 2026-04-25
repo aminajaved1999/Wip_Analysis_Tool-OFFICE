@@ -23,6 +23,7 @@ namespace WIPAT.Entities
         public string PCPK { get; set; }
         public int? MOQ { get; set; }
         public int? CasePackQty { get; set; }
+        public bool isActive { get; set; }
     }
 
     

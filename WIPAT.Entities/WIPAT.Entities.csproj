@@ -65,6 +65,7 @@
     <Compile Include="Entities\OrderDetail.cs" />
     <Compile Include="Entities\OrderMaster.cs" />
     <Compile Include="Enum\AllColumnNames.cs" />
+    <Compile Include="Enum\CatalogueItemStatus.cs" />
     <Compile Include="Enum\ExcelSheetNames.cs" />
     <Compile Include="Enum\ForecastExcelColumns.cs" />
     <Compile Include="Enum\ItemStatus.cs" />

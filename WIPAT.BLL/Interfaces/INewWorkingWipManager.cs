@@ -38,7 +38,6 @@ namespace WIPAT.BLL.Interfaces
 
 
         Task<Response<bool>> SaveWipRecordsAsync(DataTable finalDataTable, string capacity, string wipColName, DataTable stockDataTable, WipSession wipSession);
-        Task<Response<bool>> _SaveWipRecordsAsync(DataTable finalDataTable, string capacity, string wipColName, DataTable stockDataTable, WipSession wipSession);
 
     }
 }

@@ -7,15 +7,17 @@ using System.Threading.Tasks;
 
 namespace WIPAT.Entities
 {
-    public class WipDetail: BaseEntity
+    public class WipDetail : BaseEntity
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
         public int? WipMaster_Id { get; set; }
         public int? ItemCatalogueId { get; set; } // FK
         public string CASIN { get; set; }
-        public bool IsActive { get; set; }
-        public string ItemStatus { get; set; }
+
+        // REPLACED: Removed IsActive, switched ItemStatus to INT
+        public int ItemStatus { get; set; }
+
         public string Month { get; set; }
         public string Year { get; set; }
         public int? WipQuantity { get; set; }

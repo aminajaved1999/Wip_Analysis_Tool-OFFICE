@@ -74,12 +74,18 @@ namespace WIPAT
             _session.CommitmentPeriod = _commitmentPeriod;
         }
 
-        protected override void OnLoad(EventArgs e)
+        protected override async void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            LoadForecastDropdown();
-            LoadOrderDropdown();
+
+            // Load local memory bindings instantly so the grid populates if data exists
             RebindFromSession();
+
+            // Fetch DB data for the dropdowns in the background without freezing the UI
+            await Task.WhenAll(
+                LoadForecastDropdownAsync(),
+                LoadOrderDropdownAsync()
+            );
         }
 
         private void UploadForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -113,6 +119,73 @@ namespace WIPAT
             UITheme.StyleGrid(dgvOrder, true);
             UITheme.StyleGrid(dgvForecastErrors, false);
             UITheme.StyleGrid(dgvOrderErrors, false);
+
+            // Wire up the visual formatter so 0,1,2 displays as beautiful Text in all grids
+            dgvForecast1.CellFormatting += DataGridView_ItemStatus_CellFormatting;
+            dgvOrder.CellFormatting += DataGridView_ItemStatus_CellFormatting;
+            dgvForecastErrors.CellFormatting += DataGridView_ItemStatus_CellFormatting;
+            dgvOrderErrors.CellFormatting += DataGridView_ItemStatus_CellFormatting;
+        }
+
+        // Magic method to display Enums (0, 1, 2) as readable, beautifully colored text in the UI
+        private void DataGridView_ItemStatus_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            var dgv = sender as DataGridView;
+            if (dgv != null && e.ColumnIndex >= 0 && e.RowIndex >= 0 && e.Value != null && e.Value != DBNull.Value)
+            {
+                string colName = dgv.Columns[e.ColumnIndex].Name;
+
+                if (colName == "ItemStatus")
+                {
+                    string valStr = e.Value.ToString().Trim();
+
+                    if (int.TryParse(valStr, out int statusVal))
+                    {
+                        switch (statusVal)
+                        {
+                            case 0:
+                                e.Value = "Inactive";
+                                e.CellStyle.ForeColor = Color.DarkGray;
+                                break;
+                            case 1:
+                                e.Value = "Active";
+                                e.CellStyle.ForeColor = Color.Green;
+                                break;
+                            case 2:
+                                e.Value = "Invalid";
+                                e.CellStyle.ForeColor = Color.Red;
+                                break;
+                        }
+                        e.FormattingApplied = true;
+                    }
+                    else
+                    {
+                        // Fallback safely just in case it is already parsed as string
+                        if (valStr.Equals("Inactive", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = Color.DarkGray;
+                        }
+                        else if (valStr.Equals("Active", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Valid", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = Color.Green;
+                        }
+                        else if (valStr.Equals("Invalid", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Missing", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = Color.Red;
+                        }
+                    }
+                }
+                else if (colName == "Status" || colName == "Reason") // For Order Grid Status column checks & Error Grids
+                {
+                    string statusStr = e.Value.ToString();
+                    if (statusStr.Contains("Valid"))
+                        e.CellStyle.ForeColor = Color.Green;
+                    else if (statusStr.Contains("Deactivated"))
+                        e.CellStyle.ForeColor = Color.DarkGray;
+                    else if (statusStr.Contains("Missing") || statusStr.Contains("Error") || statusStr.Contains("Invalid"))
+                        e.CellStyle.ForeColor = Color.Red;
+                }
+            }
         }
 
         private void SetupModernSearchBars()
@@ -191,21 +264,34 @@ namespace WIPAT
                 {
                     col.ReadOnly = true;
                 }
+
+                // Hide redundant IsActive column so UI looks clean
+                if (col.Name == "IsActive")
+                {
+                    col.Visible = false;
+                }
             }
         }
         #endregion
 
         #region Forecast Logic
-        private void LoadForecastDropdown()
+        private async Task LoadForecastDropdownAsync()
         {
             try
             {
-                var dbResult = _forecastRepository.GetAvailableForecastsFromDB();
-                var items = new List<string> { "Load from DB..." };
+                // Show visual feedback instantly
+                cmbDbForecasts.DataSource = new List<string> { "Loading..." };
+
+                // Offload the heavy database call to a background thread
+                var dbResult = await Task.Run(() => _forecastRepository.GetAvailableForecastsFromDB());
+
+                var items = new List<string> { "-- Select Saved Forecast --" };
                 if (dbResult.Success && dbResult.Data != null)
                 {
                     items.AddRange(dbResult.Data.Select(f => $"{f.Month}_{f.Year}").Distinct());
                 }
+
+                // Once the background task is done, update the UI
                 cmbDbForecasts.DataSource = items;
             }
             catch (Exception ex)
@@ -214,15 +300,17 @@ namespace WIPAT
                              + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
                              + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
                 SetStatusThreadSafe(msg, StatusType.Error);
+                cmbDbForecasts.DataSource = new List<string> { "-- Select Saved Forecast --" };
             }
         }
-
         private async void cmbDbForecasts_SelectionChangeCommitted(object sender, EventArgs e)
         {
             try
             {
                 string sel = cmbDbForecasts.SelectedItem?.ToString();
-                if (string.IsNullOrEmpty(sel) || sel.StartsWith("Load")) return;
+
+                // Ignore the placeholder item gracefully
+                if (string.IsNullOrEmpty(sel) || sel.StartsWith("--")) return;
 
                 var parts = sel.Split('_');
                 string selectedMonth = parts[0];
@@ -354,12 +442,17 @@ namespace WIPAT
         #endregion
 
         #region Order Logic
-        private void LoadOrderDropdown()
+        private async Task LoadOrderDropdownAsync()
         {
             try
             {
-                Response<List<ActualOrder>> dbResult = _orderRepository.GetActualOrdersFromDatabase();
-                var items = new List<string> { "Load Order from DB..." };
+                // Show visual feedback instantly
+                cmbDbOrders.DataSource = new List<string> { "Loading..." };
+
+                // Offload the heavy database call to a background thread
+                var dbResult = await Task.Run(() => _orderRepository.GetActualOrdersFromDatabase());
+
+                var items = new List<string> { "-- Select Saved Order --" };
 
                 if (dbResult.Success && dbResult.Data != null)
                 {
@@ -370,6 +463,8 @@ namespace WIPAT
 
                     items.AddRange(distinctOrders);
                 }
+
+                // Once the background task is done, update the UI
                 cmbDbOrders.DataSource = items;
             }
             catch (Exception ex)
@@ -378,6 +473,7 @@ namespace WIPAT
                              + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
                              + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
                 SetStatusThreadSafe(msg, StatusType.Error);
+                cmbDbOrders.DataSource = new List<string> { "-- Select Saved Order --" };
             }
         }
 
@@ -410,7 +506,9 @@ namespace WIPAT
             try
             {
                 string sel = cmbDbOrders.SelectedItem?.ToString();
-                if (string.IsNullOrEmpty(sel) || sel.StartsWith("Load")) return;
+
+                // Ignore the placeholder item gracefully
+                if (string.IsNullOrEmpty(sel) || sel.StartsWith("--")) return;
 
                 var parts = sel.Split('_');
                 if (!ValidateOrderPrerequisites(parts[0], parts[1]))
@@ -455,6 +553,7 @@ namespace WIPAT
                     {
                         SetStatus(result.Message, StatusType.Error);
                         dgvOrderErrors.DataSource = result.Data.ProblemItemsTable;
+                        ConfigureErrorGrid(dgvOrderErrors);
                         pnlOrderErrors.Visible = true;
                         return;
                     }
@@ -533,31 +632,31 @@ namespace WIPAT
             int inactive = 0;
             int invalid = 0;
 
-            bool hasIsActive = dt.Columns.Contains("IsActive");
-            bool hasItemStatus = dt.Columns.Contains("ItemStatus");
-            bool hasStatus = dt.Columns.Contains("Status");
+            bool hasItemStatus = dt.Columns.Contains("ItemStatus"); // Int enum
+            bool hasUiStatus = dt.Columns.Contains("Status");       // Custom UI string
 
             foreach (var group in groups)
             {
                 var row = group.First();
-                bool isActive = true;
-                bool isInvalid = false;
 
-                if (hasIsActive && row["IsActive"] != DBNull.Value)
+                // Order Manager UI Status format (e.g. "Valid ✔")
+                if (hasUiStatus && row["Status"] != DBNull.Value)
                 {
-                    isActive = Convert.ToBoolean(row["IsActive"]);
+                    string s = row["Status"].ToString();
+                    if (s.Contains("Valid")) active++;
+                    else if (s.Contains("Deactivated")) inactive++;
+                    else if (s.Contains("Missing") || s.Contains("Error")) invalid++;
                 }
-
-                string statusText = "";
-                if (hasItemStatus) statusText = row["ItemStatus"]?.ToString();
-                else if (hasStatus) statusText = row["Status"]?.ToString();
-
-                if (statusText?.Equals("Invalid", StringComparison.OrdinalIgnoreCase) == true) isInvalid = true;
-                else if (statusText?.Equals("Inactive", StringComparison.OrdinalIgnoreCase) == true) isActive = false;
-
-                if (isInvalid) invalid++;
-                else if (isActive) active++;
-                else inactive++;
+                // Forecast Manager DB format (0 = Inactive, 1 = Active, 2 = Invalid)
+                else if (hasItemStatus && row["ItemStatus"] != DBNull.Value)
+                {
+                    if (int.TryParse(row["ItemStatus"].ToString(), out int stat))
+                    {
+                        if (stat == 1) active++;
+                        else if (stat == 0) inactive++;
+                        else if (stat == 2) invalid++;
+                    }
+                }
             }
 
             return (total, active, inactive, invalid);
@@ -598,6 +697,8 @@ namespace WIPAT
                 var f1 = _forecastFiles[0];
                 dgvForecast1.DataSource = f1.FullTable;
 
+                if (dgvForecast1.Columns.Contains("IsActive")) dgvForecast1.Columns["IsActive"].Visible = false;
+
                 lblForecast1.Text = $"{f1.ProjectionMonth} {f1.ProjectionYear} (Current)";
                 lblForecast1.ForeColor = UITheme.GridRowText;
 
@@ -620,6 +721,9 @@ namespace WIPAT
             }
             dgvOrder.DataSource = dt;
             dgvOrder.Visible = true;
+
+            // Hide redundant IsActive column so UI looks clean
+            if (dgvOrder.Columns.Contains("IsActive")) dgvOrder.Columns["IsActive"].Visible = false;
 
             if (dt != null && dt.Rows.Count > 0)
             {
@@ -927,8 +1031,8 @@ namespace WIPAT
             dt.Columns.Add("CreatedAt", typeof(DateTime));
             dt.Columns.Add("CreatedById", typeof(int));
             dt.Columns.Add("Notes", typeof(string));
-            dt.Columns.Add("IsActive", typeof(bool));
-            dt.Columns.Add("ItemStatus", typeof(string));
+
+            dt.Columns.Add("ItemStatus", typeof(int));
 
             foreach (var asin in selectedAsins)
             {
@@ -943,8 +1047,9 @@ namespace WIPAT
                 row["CreatedAt"] = DateTime.UtcNow;
                 row["CreatedById"] = createdById;
                 row["Notes"] = DBNull.Value;
-                row["IsActive"] = false;
-                row["ItemStatus"] = "Invalid";
+
+                // Set status to Invalid (2)
+                row["ItemStatus"] = 2;
 
                 dt.Rows.Add(row);
             }

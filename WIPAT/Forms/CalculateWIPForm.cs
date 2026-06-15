@@ -376,7 +376,6 @@ namespace WIPAT
         #region Helper Methods
         private bool ValidateSessionAndInputs()
         {
-            // Only check the previous month if we actually HAVE a previous month
             if (_session.Prev != null)
             {
                 var checkPrevious = _wipRepository.CheckIfWipCalculated(_session.Prev.Month, _session.Prev.Year);
@@ -430,13 +429,11 @@ namespace WIPAT
                 return false;
             }
 
-            // Fixed: Now only requires 1 file (the current forecast)
             if (_session.ForecastFiles == null || _session.ForecastFiles.Count == 0)
                 missing.Add("Current Forecast file");
 
             if (_session.Orders == null) missing.Add("Order file");
 
-            // Allow Prev to be null (it's okay if there's no previous timeline data yet)
             if (_session.Curr == null) missing.Add("Current forecast (Curr)");
 
             if (string.IsNullOrWhiteSpace(_session.WipType)) missing.Add("WIP Type selection");
@@ -544,16 +541,114 @@ namespace WIPAT
                     };
                     UITheme.StyleGrid(dgv);
 
+                    // Replicated exact formatting logic here!
                     dgv.CellFormatting += (s, e) =>
                     {
-                        if (e.RowIndex >= 0 && dgv.Columns.Contains("C-ASIN") && e.ColumnIndex == dgv.Columns["C-ASIN"].Index)
+                        if (e.RowIndex < 0 || e.Value == null || e.Value == DBNull.Value) return;
+
+                        string colName = dgv.Columns[e.ColumnIndex].Name;
+
+                        if (colName == "C-ASIN")
                         {
-                            var val = e.Value?.ToString();
-                            if (val != null) e.CellStyle.BackColor = GenerateColorFromString(val);
+                            var val = e.Value.ToString();
+                            e.CellStyle.BackColor = GenerateColorFromString(val);
+                        }
+                        else if (colName == "ItemStatus")
+                        {
+                            string valStr = e.Value.ToString().Trim();
+                            if (int.TryParse(valStr, out int statusVal))
+                            {
+                                switch (statusVal)
+                                {
+                                    case 0:
+                                        e.Value = "Inactive";
+                                        e.CellStyle.ForeColor = Color.DarkGray;
+                                        break;
+                                    case 1:
+                                        e.Value = "Active";
+                                        e.CellStyle.ForeColor = Color.Green;
+                                        break;
+                                    case 2:
+                                        e.Value = "Invalid";
+                                        e.CellStyle.ForeColor = Color.Red;
+                                        break;
+                                }
+                                e.FormattingApplied = true;
+                            }
+                            else
+                            {
+                                if (valStr.Equals("Inactive", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.DarkGray;
+                                else if (valStr.Equals("Active", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Valid", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.Green;
+                                else if (valStr.Equals("Invalid", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Missing", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.Red;
+                            }
                         }
                     };
 
-                    var pnlControls = new Panel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(15), BackColor = UITheme.BackgroundCanvas };
+                    // Add Status Bar for Counts
+                    var pnlStatusBar = new FlowLayoutPanel
+                    {
+                        Dock = DockStyle.Bottom,
+                        Height = 40,
+                        BackColor = Color.FromArgb(245, 246, 250),
+                        Padding = new Padding(15, 10, 15, 5),
+                        WrapContents = false
+                    };
+
+                    var lblTotal = new Label { AutoSize = true, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = Color.Black, Margin = new Padding(0, 0, 20, 0) };
+                    var lblActive = new Label { AutoSize = true, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = Color.FromArgb(46, 125, 50), Margin = new Padding(0, 0, 20, 0) };
+                    var lblInactive = new Label { AutoSize = true, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = Color.DarkGray, Margin = new Padding(0, 0, 20, 0) };
+                    var lblInvalid = new Label { AutoSize = true, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold), ForeColor = Color.Red, Margin = new Padding(0, 0, 20, 0) };
+
+                    pnlStatusBar.Controls.AddRange(new Control[] { lblTotal, lblActive, lblInactive, lblInvalid });
+
+                    // Action to cleanly calculate metrics uniquely by CASIN
+                    Action updateStats = () =>
+                    {
+                        if (dgv.IsDisposed) return;
+
+                        // Ensure IsActive is hidden so the user only sees ItemStatus
+                        if (dgv.Columns.Contains("IsActive")) dgv.Columns["IsActive"].Visible = false;
+
+                        int t = 0, a = 0, i = 0, inv = 0;
+                        bool hasStatusCol = dgv.Columns.Contains("ItemStatus");
+                        bool hasCasinCol = dgv.Columns.Contains("C-ASIN");
+
+                        if (hasCasinCol && hasStatusCol)
+                        {
+                            // Track which CASINs we've already counted to avoid multiplying by commitment periods
+                            var processedCasins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                            foreach (DataGridViewRow r in dgv.Rows)
+                            {
+                                if (r.IsNewRow) continue;
+
+                                var casinCell = r.Cells["C-ASIN"].Value?.ToString();
+                                if (string.IsNullOrWhiteSpace(casinCell)) continue;
+
+                                // Only process the status count for each CASIN once!
+                                if (processedCasins.Add(casinCell.Trim()))
+                                {
+                                    t++;
+                                    var statCell = r.Cells["ItemStatus"].Value;
+                                    if (statCell != null && int.TryParse(statCell.ToString(), out int stat))
+                                    {
+                                        if (stat == 1) a++;
+                                        else if (stat == 0) i++;
+                                        else if (stat == 2) inv++;
+                                    }
+                                }
+                            }
+                        }
+
+                        lblTotal.Text = $"Total Items: {t}";
+                        lblActive.Text = $"Active: {a}";
+                        lblInactive.Text = $"Inactive: {i}";
+                        lblInvalid.Text = $"Invalid: {inv}";
+                    };
+
+                    dgv.DataBindingComplete += (s, e) => updateStats();
+
+                    var pnlControls = new Panel { Dock = DockStyle.Top, Height = 60, Padding = new Padding(15), BackColor = UITheme.SurfaceWhite };
 
                     var lblSearch = new Label { Text = "Filter CASIN:", Dock = DockStyle.Left, Width = 100, TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold) };
                     var txtSearch = new TextBox { Width = 200, Dock = DockStyle.Left, Font = new Font("Segoe UI", 10), BorderStyle = BorderStyle.FixedSingle };
@@ -564,6 +659,7 @@ namespace WIPAT
                     btnSearch.Click += (s, e) => {
                         string term = txtSearch.Text.Replace("'", "''");
                         stockTable.DefaultView.RowFilter = string.IsNullOrWhiteSpace(term) ? "" : $"[C-ASIN] LIKE '%{term}%'";
+                        updateStats();
                     };
 
                     var btnExport = new Button { Text = "Export to Excel", Dock = DockStyle.Right, Width = 150 };
@@ -581,7 +677,8 @@ namespace WIPAT
                     pnlControls.Controls.Add(lblSearch);
 
                     _wipFormCached.Controls.Add(dgv);
-                    _wipFormCached.Controls.Add(pnlControls);
+                    _wipFormCached.Controls.Add(pnlStatusBar); // Add bottom status bar
+                    _wipFormCached.Controls.Add(pnlControls);  // Add top toolbar
                 }
                 else
                 {

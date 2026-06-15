@@ -23,8 +23,6 @@ namespace WIPAT
 
         private DataTable _filteredDataTable;
         private DataTable _exportDataTable;
-
-        private ComboBox _cmbViewMode;
         #endregion
 
         #region Constructor & Initialization
@@ -43,38 +41,18 @@ namespace WIPAT
             this.Text = $"Export WIP Data for {targetMonth}".Trim();
             lblHeaderTitle.Text = $"Export Calculated WIPs for {targetMonth}".Trim();
 
-            Label lblView = new Label
-            {
-                Text = "View:",
-                AutoSize = true,
-                Location = new Point(320, 21),
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                ForeColor = UITheme.TextSecondaryColor
-            };
-
-            _cmbViewMode = new ComboBox
-            {
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Location = new Point(370, 18),
-                Width = 140,
-                Font = new Font("Segoe UI", 9.5F),
-                BackColor = UITheme.SurfaceWhite,
-                ForeColor = UITheme.GridRowText
-            };
-
-            _cmbViewMode.Items.Add("Standard View");
-            _cmbViewMode.Items.Add("Export Preview");
-            _cmbViewMode.SelectedIndex = 1;
-            _cmbViewMode.SelectedIndexChanged += (s, e) => BindGrid();
-
-            pnlToolbar.Controls.Add(lblView);
-            pnlToolbar.Controls.Add(_cmbViewMode);
+            // Wire up search events
+            btnSearch.Click += BtnSearch_Click;
+            txtSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) BtnSearch_Click(s, e); };
 
             // Wire up the global UITheme widget method
             if (previewGrid != null)
             {
                 previewGrid.DataBindingComplete += (s, e) =>
                     UITheme.UpdateGridSummaryCounts(previewGrid, lblTotalItems, lblActiveItems, lblInactiveItems, lblInvalidItems);
+
+                // Add your beautiful color formatting to this grid too!
+                previewGrid.CellFormatting += PreviewGrid_CellFormatting;
             }
         }
 
@@ -88,10 +66,50 @@ namespace WIPAT
             UITheme.SetFormIcon(this);
             UITheme.StyleButton(btnResetSort, AppButtonStyle.Refresh);
             UITheme.StyleButton(btnExport, AppButtonStyle.ExportToExcel);
+            UITheme.StyleButton(btnSearch, AppButtonStyle.Search);
 
             if (previewGrid != null)
             {
                 UITheme.StyleGrid(previewGrid);
+            }
+        }
+
+        private void PreviewGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            var dgv = sender as DataGridView;
+            if (dgv != null && e.ColumnIndex >= 0 && e.RowIndex >= 0 && e.Value != null && e.Value != DBNull.Value)
+            {
+                if (dgv.Columns[e.ColumnIndex].Name == "ItemStatus")
+                {
+                    string valStr = e.Value.ToString().Trim();
+
+                    if (int.TryParse(valStr, out int statusVal))
+                    {
+                        switch (statusVal)
+                        {
+                            case 0:
+                                e.Value = "Inactive";
+                                e.CellStyle.ForeColor = Color.DarkGray;
+                                break;
+                            case 1:
+                                e.Value = "Active";
+                                e.CellStyle.ForeColor = Color.Green;
+                                break;
+                            case 2:
+                                e.Value = "Invalid";
+                                e.CellStyle.ForeColor = Color.Red;
+                                break;
+                        }
+                        e.FormattingApplied = true;
+                    }
+                    else
+                    {
+                        // Fallback if it's already translated to string
+                        if (valStr.Equals("Inactive", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.DarkGray;
+                        else if (valStr.Equals("Active", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Valid", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.Green;
+                        else if (valStr.Equals("Invalid", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Missing", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.Red;
+                    }
+                }
             }
         }
         #endregion
@@ -141,26 +159,30 @@ namespace WIPAT
             if (_bindingSource != null)
             {
                 _bindingSource.RemoveSort();
-                txtSearchAsin.Clear();
+                _bindingSource.RemoveFilter();
+                txtSearch.Clear();
                 previewGrid.Refresh();
+                SetStatus("Sort and filters reset.", StatusType.Success);
             }
         }
 
-        private void TxtSearchAsin_TextChanged(object sender, EventArgs e)
+        private void BtnSearch_Click(object sender, EventArgs e)
         {
             try
             {
                 if (_bindingSource.DataSource == null) return;
 
-                string searchValue = txtSearchAsin.Text.Trim().Replace("'", "''");
+                string searchValue = txtSearch.Text.Trim().Replace("'", "''");
 
                 if (string.IsNullOrEmpty(searchValue))
                 {
                     _bindingSource.RemoveFilter();
+                    SetStatus("Search filter cleared.", StatusType.Success);
                 }
                 else
                 {
                     _bindingSource.Filter = string.Format("[C-ASIN] LIKE '%{0}%'", searchValue);
+                    SetStatus($"Filtered by C-ASIN containing: {searchValue}", StatusType.Success);
                 }
             }
             catch (Exception ex)
@@ -169,6 +191,7 @@ namespace WIPAT
                                   + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
                                   + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
                 System.Diagnostics.Debug.WriteLine(errorMsg);
+                SetStatus("Error applying search filter.", StatusType.Error);
             }
         }
 
@@ -181,25 +204,15 @@ namespace WIPAT
         #region Data Binding & Transformation
         private void BindGrid()
         {
-            if (_cmbViewMode.SelectedIndex == 1)
-            {
-                _bindingSource.DataSource = _exportDataTable;
-            }
-            else
-            {
-                _bindingSource.DataSource = _filteredDataTable;
-            }
-
+            _bindingSource.DataSource = _exportDataTable;
             previewGrid.DataSource = _bindingSource;
-
-            TxtSearchAsin_TextChanged(this, EventArgs.Empty);
         }
 
         private DataTable GenerateExportDataTable(DataTable sourceTable)
         {
             DataTable dtExport = new DataTable();
             dtExport.Columns.Add("C-ASIN", typeof(string));
-            dtExport.Columns.Add("IsActive", typeof(bool));
+            // Explicitly dropped "IsActive"
             dtExport.Columns.Add("ItemStatus", typeof(string));
             dtExport.Columns.Add("Month", typeof(string));
             dtExport.Columns.Add("Year", typeof(string));
@@ -223,24 +236,22 @@ namespace WIPAT
             {
                 string asin = r["C-ASIN"]?.ToString();
 
-                // Get IsActive
-                bool isActive = false;
-                if (sourceTable.Columns.Contains("IsActive") && r["IsActive"] != DBNull.Value)
-                {
-                    var val = r["IsActive"];
-                    if (val is bool b) isActive = b;
-                    else if (val.ToString() == "1" || val.ToString().Equals("true", StringComparison.OrdinalIgnoreCase)) isActive = true;
-                }
-
-                // Get ItemStatus
-                string itemStatus = "";
+                string itemStatusText = "Unknown";
                 if (sourceTable.Columns.Contains("ItemStatus") && r["ItemStatus"] != DBNull.Value)
                 {
-                    itemStatus = r["ItemStatus"]?.ToString();
-                }
-                else if (sourceTable.Columns.Contains("Item Status") && r["Item Status"] != DBNull.Value)
-                {
-                    itemStatus = r["Item Status"]?.ToString();
+                    if (int.TryParse(r["ItemStatus"].ToString(), out int statVal))
+                    {
+                        switch (statVal)
+                        {
+                            case 0: itemStatusText = "Inactive"; break;
+                            case 1: itemStatusText = "Active"; break;
+                            case 2: itemStatusText = "Invalid"; break;
+                        }
+                    }
+                    else
+                    {
+                        itemStatusText = r["ItemStatus"].ToString();
+                    }
                 }
 
                 string month = r["Month"]?.ToString();
@@ -264,7 +275,8 @@ namespace WIPAT
                     if (!string.IsNullOrWhiteSpace(moq)) typeText += $"-MOQ ({moq})";
                 }
 
-                dtExport.Rows.Add(asin, isActive, itemStatus, month, year, wipQty, cpStr, currentForecastMonth, currentForecastYear, casePackVal, typeText, userName);
+                // Add row without IsActive
+                dtExport.Rows.Add(asin, itemStatusText, month, year, wipQty, cpStr, currentForecastMonth, currentForecastYear, casePackVal, typeText, userName);
             }
 
             return dtExport;

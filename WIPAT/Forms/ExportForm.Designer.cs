@@ -17,8 +17,6 @@ namespace WIPAT
         private System.Windows.Forms.Button btnExport;
         private System.Windows.Forms.Button btnResetSort;
         private System.Windows.Forms.DataGridView previewGrid;
-        private System.Windows.Forms.Label lblSearch;
-        private System.Windows.Forms.TextBox txtSearchAsin;
         private System.Windows.Forms.Label lblTotalItems;
         private System.Windows.Forms.Label lblActiveItems;
         private System.Windows.Forms.Label lblInactiveItems;
@@ -41,15 +39,17 @@ namespace WIPAT
 
         private void InitializeComponent()
         {
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle2 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle3 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle4 = new System.Windows.Forms.DataGridViewCellStyle();
             this.pnlHeader = new System.Windows.Forms.Panel();
             this.lblHeaderTitle = new System.Windows.Forms.Label();
             this.pnlToolbar = new System.Windows.Forms.Panel();
+            this.pnlSearch = new System.Windows.Forms.Panel();
+            this.btnSearch = new System.Windows.Forms.Button();
+            this.txtSearch = new System.Windows.Forms.TextBox();
+            this.lblSearch = new System.Windows.Forms.Label();
             this.btnResetSort = new System.Windows.Forms.Button();
             this.btnExport = new System.Windows.Forms.Button();
-            this.lblSearch = new System.Windows.Forms.Label();
-            this.txtSearchAsin = new System.Windows.Forms.TextBox();
             this.pnlStatusBar = new System.Windows.Forms.Panel();
             this.lblTotalItems = new System.Windows.Forms.Label();
             this.lblActiveItems = new System.Windows.Forms.Label();
@@ -58,6 +58,7 @@ namespace WIPAT
             this.previewGrid = new System.Windows.Forms.DataGridView();
             this.pnlHeader.SuspendLayout();
             this.pnlToolbar.SuspendLayout();
+            this.pnlSearch.SuspendLayout();
             this.pnlStatusBar.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.previewGrid)).BeginInit();
             this.SuspendLayout();
@@ -86,58 +87,73 @@ namespace WIPAT
             // pnlToolbar
             // 
             this.pnlToolbar.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(246)))), ((int)(((byte)(250)))));
+            this.pnlToolbar.Controls.Add(this.pnlSearch);
             this.pnlToolbar.Controls.Add(this.btnResetSort);
             this.pnlToolbar.Controls.Add(this.btnExport);
-            this.pnlToolbar.Controls.Add(this.lblSearch);
-            this.pnlToolbar.Controls.Add(this.txtSearchAsin);
             this.pnlToolbar.Dock = System.Windows.Forms.DockStyle.Top;
             this.pnlToolbar.Location = new System.Drawing.Point(0, 60);
             this.pnlToolbar.Name = "pnlToolbar";
-            this.pnlToolbar.Size = new System.Drawing.Size(1000, 60);
+            this.pnlToolbar.Size = new System.Drawing.Size(1000, 41);
             this.pnlToolbar.TabIndex = 1;
+            // 
+            // pnlSearch
+            // 
+            this.pnlSearch.Controls.Add(this.btnSearch);
+            this.pnlSearch.Controls.Add(this.txtSearch);
+            this.pnlSearch.Controls.Add(this.lblSearch);
+            this.pnlSearch.Dock = System.Windows.Forms.DockStyle.Right;
+            this.pnlSearch.Location = new System.Drawing.Point(650, 0);
+            this.pnlSearch.Name = "pnlSearch";
+            this.pnlSearch.Size = new System.Drawing.Size(350, 41);
+            this.pnlSearch.TabIndex = 6;
+            // 
+            // btnSearch
+            // 
+            this.btnSearch.Location = new System.Drawing.Point(265, 3);
+            this.btnSearch.Name = "btnSearch";
+            this.btnSearch.Size = new System.Drawing.Size(75, 29);
+            this.btnSearch.TabIndex = 2;
+            this.btnSearch.Text = "Search";
+            this.btnSearch.UseVisualStyleBackColor = true;
+            // 
+            // txtSearch
+            // 
+            this.txtSearch.Location = new System.Drawing.Point(60, 6);
+            this.txtSearch.Name = "txtSearch";
+            this.txtSearch.Size = new System.Drawing.Size(199, 24);
+            this.txtSearch.TabIndex = 1;
+            // 
+            // lblSearch
+            // 
+            this.lblSearch.AutoSize = true;
+            this.lblSearch.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.lblSearch.Location = new System.Drawing.Point(5, 10);
+            this.lblSearch.Name = "lblSearch";
+            this.lblSearch.Size = new System.Drawing.Size(45, 15);
+            this.lblSearch.TabIndex = 0;
+            this.lblSearch.Text = "CASIN:";
             // 
             // btnResetSort
             // 
             this.btnResetSort.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.btnResetSort.Location = new System.Drawing.Point(10, 13);
+            this.btnResetSort.Location = new System.Drawing.Point(10, 3);
             this.btnResetSort.Name = "btnResetSort";
             this.btnResetSort.Size = new System.Drawing.Size(120, 35);
             this.btnResetSort.TabIndex = 0;
             this.btnResetSort.Text = "Refresh/Reset";
             this.btnResetSort.UseVisualStyleBackColor = true;
+            this.btnResetSort.Click += new System.EventHandler(this.BtnResetSort_Click);
             // 
             // btnExport
             // 
             this.btnExport.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.btnExport.Location = new System.Drawing.Point(140, 13);
+            this.btnExport.Location = new System.Drawing.Point(136, 3);
             this.btnExport.Name = "btnExport";
             this.btnExport.Size = new System.Drawing.Size(160, 35);
             this.btnExport.TabIndex = 4;
             this.btnExport.Text = "Export to Excel (.xlsx)";
             this.btnExport.UseVisualStyleBackColor = true;
             this.btnExport.Click += new System.EventHandler(this.BtnExport_Click);
-            // 
-            // lblSearch
-            // 
-            this.lblSearch.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.lblSearch.AutoSize = true;
-            this.lblSearch.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.lblSearch.Location = new System.Drawing.Point(515, 21);
-            this.lblSearch.Name = "lblSearch";
-            this.lblSearch.Size = new System.Drawing.Size(99, 17);
-            this.lblSearch.TabIndex = 2;
-            this.lblSearch.Text = "Search C-ASIN:";
-            // 
-            // txtSearchAsin
-            // 
-            this.txtSearchAsin.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.txtSearchAsin.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.txtSearchAsin.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.txtSearchAsin.Location = new System.Drawing.Point(620, 17);
-            this.txtSearchAsin.Name = "txtSearchAsin";
-            this.txtSearchAsin.Size = new System.Drawing.Size(170, 25);
-            this.txtSearchAsin.TabIndex = 1;
-            this.txtSearchAsin.TextChanged += new System.EventHandler(this.TxtSearchAsin_TextChanged);
             // 
             // pnlStatusBar
             // 
@@ -192,7 +208,7 @@ namespace WIPAT
             this.lblInvalidItems.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(53)))), ((int)(((byte)(69)))));
             this.lblInvalidItems.Location = new System.Drawing.Point(380, 12);
             this.lblInvalidItems.Name = "lblInvalidItems";
-            this.lblInvalidItems.Size = new System.Drawing.Size(66, 17);
+            this.lblInvalidItems.Size = new System.Drawing.Size(65, 17);
             this.lblInvalidItems.TabIndex = 3;
             this.lblInvalidItems.Text = "Invalid: 0";
             // 
@@ -204,33 +220,33 @@ namespace WIPAT
             this.previewGrid.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.previewGrid.CellBorderStyle = System.Windows.Forms.DataGridViewCellBorderStyle.SingleHorizontal;
             this.previewGrid.ColumnHeadersBorderStyle = System.Windows.Forms.DataGridViewHeaderBorderStyle.Single;
-            dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(15)))), ((int)(((byte)(35)))), ((int)(((byte)(70)))));
-            dataGridViewCellStyle1.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            dataGridViewCellStyle1.ForeColor = System.Drawing.Color.White;
-            dataGridViewCellStyle1.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(15)))), ((int)(((byte)(35)))), ((int)(((byte)(70)))));
-            dataGridViewCellStyle1.SelectionForeColor = System.Drawing.Color.White;
-            dataGridViewCellStyle1.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
-            this.previewGrid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
+            dataGridViewCellStyle3.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle3.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(15)))), ((int)(((byte)(35)))), ((int)(((byte)(70)))));
+            dataGridViewCellStyle3.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            dataGridViewCellStyle3.ForeColor = System.Drawing.Color.White;
+            dataGridViewCellStyle3.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(15)))), ((int)(((byte)(35)))), ((int)(((byte)(70)))));
+            dataGridViewCellStyle3.SelectionForeColor = System.Drawing.Color.White;
+            dataGridViewCellStyle3.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
+            this.previewGrid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle3;
             this.previewGrid.ColumnHeadersHeight = 45;
-            dataGridViewCellStyle2.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle2.BackColor = System.Drawing.Color.White;
-            dataGridViewCellStyle2.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            dataGridViewCellStyle2.ForeColor = System.Drawing.Color.Black;
-            dataGridViewCellStyle2.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(235)))), ((int)(((byte)(252)))));
-            dataGridViewCellStyle2.SelectionForeColor = System.Drawing.Color.Black;
-            dataGridViewCellStyle2.WrapMode = System.Windows.Forms.DataGridViewTriState.False;
-            this.previewGrid.DefaultCellStyle = dataGridViewCellStyle2;
+            dataGridViewCellStyle4.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle4.BackColor = System.Drawing.Color.White;
+            dataGridViewCellStyle4.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            dataGridViewCellStyle4.ForeColor = System.Drawing.Color.Black;
+            dataGridViewCellStyle4.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(235)))), ((int)(((byte)(252)))));
+            dataGridViewCellStyle4.SelectionForeColor = System.Drawing.Color.Black;
+            dataGridViewCellStyle4.WrapMode = System.Windows.Forms.DataGridViewTriState.False;
+            this.previewGrid.DefaultCellStyle = dataGridViewCellStyle4;
             this.previewGrid.Dock = System.Windows.Forms.DockStyle.Fill;
             this.previewGrid.EnableHeadersVisualStyles = false;
             this.previewGrid.GridColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(220)))), ((int)(((byte)(220)))));
-            this.previewGrid.Location = new System.Drawing.Point(0, 120);
+            this.previewGrid.Location = new System.Drawing.Point(0, 101);
             this.previewGrid.Name = "previewGrid";
             this.previewGrid.ReadOnly = true;
             this.previewGrid.RowHeadersVisible = false;
             this.previewGrid.RowTemplate.Height = 35;
             this.previewGrid.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.previewGrid.Size = new System.Drawing.Size(1000, 440);
+            this.previewGrid.Size = new System.Drawing.Size(1000, 459);
             this.previewGrid.TabIndex = 2;
             // 
             // ExportForm
@@ -252,7 +268,8 @@ namespace WIPAT
             this.pnlHeader.ResumeLayout(false);
             this.pnlHeader.PerformLayout();
             this.pnlToolbar.ResumeLayout(false);
-            this.pnlToolbar.PerformLayout();
+            this.pnlSearch.ResumeLayout(false);
+            this.pnlSearch.PerformLayout();
             this.pnlStatusBar.ResumeLayout(false);
             this.pnlStatusBar.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.previewGrid)).EndInit();
@@ -261,5 +278,10 @@ namespace WIPAT
         }
 
         #endregion
+
+        private System.Windows.Forms.Panel pnlSearch;
+        private System.Windows.Forms.Button btnSearch;
+        private System.Windows.Forms.TextBox txtSearch;
+        private System.Windows.Forms.Label lblSearch;
     }
 }

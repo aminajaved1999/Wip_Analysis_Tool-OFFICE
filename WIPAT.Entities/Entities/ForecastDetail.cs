@@ -7,14 +7,14 @@ using System.Threading.Tasks;
 
 namespace WIPAT.Entities
 {
-    public class ForecastDetail: BaseEntity
+    public class ForecastDetail : BaseEntity
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
-        //excel column
+
+        // excel column
         public int? ItemCatalogueId { get; set; } // FK
         public string CASIN { get; set; }
-        //public int ItemCatalogueId { get; set; }  // FK
 
         public string ModelNumber { get; set; }
         public int RequestedQuantity { get; set; }
@@ -24,12 +24,13 @@ namespace WIPAT.Entities
 
         public DateTime PODate { get; set; }
 
-        //extracted from PO Date
-
+        // extracted from PO Date
         public string Month { get; set; }
         public string Year { get; set; }
         public bool IsSystemGenerated { get; set; }
-        public bool IsActive { get; set; }
+
+        // REPLACED: IsActive (bool) -> ItemStatus (int)
+        public int ItemStatus { get; set; }
 
         // Foreign Key
         public int POForecastMasterId { get; set; }

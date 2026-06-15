@@ -21,7 +21,8 @@ namespace WIPAT.DAL.Interfaces
 
         //Check / Validation Methods
         bool IsCAsinExistInCatalogue(string casin);
-        Task<bool?> CheckCAsinStatus(string casin);
+        //Task<bool?> CheckCAsinStatus(string casin);
+        Task<int?> CheckCAsinStatus(string casin);
         Task<Response<bool>> IsCasinExistInCatalogueAndInitialStock(string casin);
         Task<Response<bool>> IsItemExistInCatalogue(string asin);
         //Add / Update Methods

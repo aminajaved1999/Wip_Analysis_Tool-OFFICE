@@ -55,7 +55,7 @@ namespace WIPAT.DAL
                 var query = _context.ActualOrders
                     .AsNoTracking()
                     .Include(o => o.ItemCatalogue)
-                    .Where(o => o.Month == month && o.Year == year)    
+                    .Where(o => o.Month == month && o.Year == year)
                     .ToList();
 
                 if (!query.Any())
@@ -76,14 +76,13 @@ namespace WIPAT.DAL
                 table.Columns.Add("Year", typeof(string));
                 table.Columns.Add("FileName", typeof(string));
 
-                // ---> ADDED: New Columns for UI <---
-                table.Columns.Add("IsActive", typeof(bool));
-                table.Columns.Add("ItemStatus", typeof(string));
+                table.Columns.Add("IsActive", typeof(bool)); // Maintained for backwards compatibility in UI
+                table.Columns.Add("ItemStatus", typeof(int)); // Updated to integer enum
 
                 foreach (var o in query)
                 {
-                    bool isActive = o.ItemCatalogue?.isActive ?? false;
-                    string itemStatus = o.ItemCatalogue?.ItemStatus;
+                    bool isActive = o.ItemCatalogue != null ? o.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active : false;
+                    int itemStatus = o.ItemCatalogue != null ? o.ItemCatalogue.ItemStatus : (int)CatalogueItemStatus.Invalid;
 
                     table.Rows.Add(
                         o.ItemCatalogueId,
@@ -256,9 +255,8 @@ namespace WIPAT.DAL
                 table.Columns.Add("Year", typeof(string));
                 table.Columns.Add("FileName", typeof(string));
 
-                // ItemCatalogue raw DB columns
                 table.Columns.Add("IsActive", typeof(bool));
-                table.Columns.Add("ItemStatus", typeof(string));
+                table.Columns.Add("ItemStatus", typeof(int)); // Updated to enum integer
 
                 foreach (var o in query)
                 {
@@ -271,8 +269,8 @@ namespace WIPAT.DAL
                         o.Month,
                         o.Year,
                         o.FileName,
-                        catalogue?.isActive,
-                        catalogue?.ItemStatus
+                        catalogue != null ? catalogue.ItemStatus == (int)CatalogueItemStatus.Active : false,
+                        catalogue != null ? catalogue.ItemStatus : (int)CatalogueItemStatus.Invalid
                     );
                 }
 
@@ -292,6 +290,7 @@ namespace WIPAT.DAL
                 };
             }
         }
+
         public Response<Tuple<DataTable, List<ActualOrder>>> _GetExistingOrderData(string fileName, string month, string year)
         {
             try
@@ -303,7 +302,7 @@ namespace WIPAT.DAL
                     .Where(o => o.Month == month
                              && o.Year == year
                              && o.ItemCatalogue != null        // Safety check
-                             && o.ItemCatalogue.isActive)      // Filter for active records only
+                             && o.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active)  // Filter for active records only
                     .ToList();
 
 

@@ -62,8 +62,8 @@ namespace WIPAT.DAL
 
                     // 3. Prepare DataTable for Bulk Insert
                     var catalogueLookup = _context.ItemCatalogues
-                        .Select(x => new { x.Id, x.Casin, x.isActive })
-                        .ToDictionary(x => x.Casin, x => new { x.Id, x.isActive });
+                        .Select(x => new { x.Id, x.Casin, x.ItemStatus })
+                        .ToDictionary(x => x.Casin, x => new { x.Id, x.ItemStatus });
 
                     DataTable bulkTable = new DataTable();
                     bulkTable.Columns.Add("ItemCatalogueId", typeof(int));
@@ -76,7 +76,9 @@ namespace WIPAT.DAL
                     bulkTable.Columns.Add("Year", typeof(string));
                     bulkTable.Columns.Add("POForecastMasterId", typeof(int));
                     bulkTable.Columns.Add("IsSystemGenerated", typeof(bool));
-                    bulkTable.Columns.Add("IsActive", typeof(bool));
+
+                    // REPLACED: IsActive -> ItemStatus (int)
+                    bulkTable.Columns.Add("ItemStatus", typeof(int));
 
                     foreach (DataRow row in forecastData.FullTable.Rows)
                     {
@@ -86,7 +88,7 @@ namespace WIPAT.DAL
                         if (catalogueLookup.TryGetValue(casinValue, out var catInfo))
                         {
                             newRow["ItemCatalogueId"] = catInfo.Id;
-                            newRow["IsActive"] = catInfo.isActive;
+                            newRow["ItemStatus"] = catInfo.ItemStatus; // Pass the int enum directly
                         }
                         else
                         {
@@ -127,7 +129,9 @@ namespace WIPAT.DAL
                         sqlBulkCopy.ColumnMappings.Add("Year", "Year");
                         sqlBulkCopy.ColumnMappings.Add("POForecastMasterId", "POForecastMasterId");
                         sqlBulkCopy.ColumnMappings.Add("IsSystemGenerated", "IsSystemGenerated");
-                        sqlBulkCopy.ColumnMappings.Add("IsActive", "IsActive");
+
+                        // REPLACED: Mapped ItemStatus instead of IsActive
+                        sqlBulkCopy.ColumnMappings.Add("ItemStatus", "ItemStatus");
 
                         sqlBulkCopy.WriteToServer(bulkTable);
                     }
@@ -190,21 +194,21 @@ namespace WIPAT.DAL
 
                     // 3. Prepare DataTable for Bulk Insert
                     var catalogueLookup = _context.ItemCatalogues
-                        .Select(x => new { x.Id, x.Casin, x.isActive })
-                        .ToDictionary(x => x.Casin, x => new { x.Id, x.isActive });
+                        .Select(x => new { x.Id, x.Casin, x.ItemStatus })
+                        .ToDictionary(x => x.Casin, x => new { x.Id, x.ItemStatus });
 
                     DataTable bulkTable = new DataTable();
                     bulkTable.Columns.Add("ItemCatalogueId", typeof(int));
                     bulkTable.Columns.Add("CASIN", typeof(string));
                     bulkTable.Columns.Add("RequestedQuantity", typeof(int));
-                    bulkTable.Columns.Add("Wip", typeof(int));
                     bulkTable.Columns.Add("CommitmentPeriod", typeof(string));
                     bulkTable.Columns.Add("PODate", typeof(DateTime));
                     bulkTable.Columns.Add("Month", typeof(string));
                     bulkTable.Columns.Add("Year", typeof(string));
                     bulkTable.Columns.Add("POForecastMasterId", typeof(int));
-                    bulkTable.Columns.Add("IsSystemGenerated", typeof(bool));
-                    bulkTable.Columns.Add("IsActive", typeof(bool));
+
+                    // REPLACED: IsActive -> ItemStatus (int)
+                    bulkTable.Columns.Add("ItemStatus", typeof(int));
 
                     foreach (DataRow row in forecastData.FullTable.Rows)
                     {
@@ -214,7 +218,7 @@ namespace WIPAT.DAL
                         if (catalogueLookup.TryGetValue(casinValue, out var catInfo))
                         {
                             newRow["ItemCatalogueId"] = catInfo.Id;
-                            newRow["IsActive"] = catInfo.isActive;
+                            newRow["ItemStatus"] = catInfo.ItemStatus; // Pass int enum directly
                         }
                         else
                         {
@@ -223,15 +227,11 @@ namespace WIPAT.DAL
 
                         newRow["CASIN"] = casinValue;
                         newRow["RequestedQuantity"] = int.TryParse(row["Requested Quantity"].ToString(), out int qty) ? qty : 0;
-                        newRow["Wip"] = isFirstFile && int.TryParse(row["Wip"].ToString(), out int wipVal) ? wipVal : (object)DBNull.Value;
                         newRow["CommitmentPeriod"] = row["Commitment period"].ToString();
                         newRow["PODate"] = DateTime.TryParse(row["PO date"].ToString(), out DateTime poDate) ? poDate : DateTime.MinValue;
                         newRow["Month"] = row["Month"].ToString();
                         newRow["Year"] = row["Year"].ToString();
                         newRow["POForecastMasterId"] = masterId;
-                        newRow["IsSystemGenerated"] = row.Table.Columns.Contains("IsSystemGenerated") && row["IsSystemGenerated"] != DBNull.Value
-                                                      ? Convert.ToBoolean(row["IsSystemGenerated"])
-                                                      : false;
 
                         bulkTable.Rows.Add(newRow);
                     }
@@ -248,14 +248,14 @@ namespace WIPAT.DAL
                         sqlBulkCopy.ColumnMappings.Add("ItemCatalogueId", "ItemCatalogueId");
                         sqlBulkCopy.ColumnMappings.Add("CASIN", "CASIN");
                         sqlBulkCopy.ColumnMappings.Add("RequestedQuantity", "RequestedQuantity");
-                        sqlBulkCopy.ColumnMappings.Add("Wip", "Wip");
                         sqlBulkCopy.ColumnMappings.Add("CommitmentPeriod", "CommitmentPeriod");
                         sqlBulkCopy.ColumnMappings.Add("PODate", "PODate");
                         sqlBulkCopy.ColumnMappings.Add("Month", "Month");
                         sqlBulkCopy.ColumnMappings.Add("Year", "Year");
                         sqlBulkCopy.ColumnMappings.Add("POForecastMasterId", "POForecastMasterId");
-                        sqlBulkCopy.ColumnMappings.Add("IsSystemGenerated", "IsSystemGenerated");
-                        sqlBulkCopy.ColumnMappings.Add("IsActive", "IsActive");
+
+                        // REPLACED: Mapped ItemStatus instead of IsActive
+                        sqlBulkCopy.ColumnMappings.Add("ItemStatus", "ItemStatus");
 
                         sqlBulkCopy.WriteToServer(bulkTable);
                     }
@@ -270,8 +270,8 @@ namespace WIPAT.DAL
                     {
                         Success = false,
                         Message = $"An unexpected error occurred while saving forecast data to the database: {ex.Message}"
-                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
+                            + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                            + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
                     };
                 }
             }
@@ -440,69 +440,6 @@ namespace WIPAT.DAL
             }
         }
 
-        public Response<Tuple<DataTable, ForecastMaster>> xGetForecastDataFromDB(string month, string year)
-        {
-            try
-            {
-                var master = _context.ForecastMasters
-                            .AsNoTracking()
-                            .Include(m => m.Details)
-                            .FirstOrDefault(m => m.Month == month && m.Year == year);
-
-                if (master == null)
-                {
-                    return new Response<Tuple<DataTable, ForecastMaster>> { Success = false, Status = StatusType.Warning, Message = $"No forecast found for {month} {year}." };
-                }
-
-                if (master.Details == null || !master.Details.Any())
-                {
-                    return new Response<Tuple<DataTable, ForecastMaster>> { Success = false, Status = StatusType.Warning, Message = $"No details found for {month} {year}." };
-                }
-
-                var orderedDetails = master.Details.OrderBy(d => d.CASIN).ToList();
-
-                DataTable table = new DataTable();
-                table.Columns.Add("C-ASIN", typeof(string));
-                table.Columns.Add("Requested Quantity", typeof(int));
-                table.Columns.Add("WIP", typeof(int));
-                table.Columns.Add("Commitment period", typeof(int));
-                table.Columns.Add("PO Date", typeof(DateTime));
-                table.Columns.Add("Month", typeof(string));
-                table.Columns.Add("Year", typeof(string));
-
-                foreach (var d in orderedDetails)
-                {
-                    table.Rows.Add(
-                        d.CASIN ?? (object)DBNull.Value,
-                        d.RequestedQuantity,
-                        d.Wip ?? (object)DBNull.Value,
-                        d.CommitmentPeriod,
-                        d.PODate,
-                        d.Month ?? (object)DBNull.Value,
-                        d.Year ?? (object)DBNull.Value
-                    );
-                }
-
-                return new Response<Tuple<DataTable, ForecastMaster>>
-                {
-                    Success = true,
-                    Status = StatusType.Success,
-                    Data = new Tuple<DataTable, ForecastMaster>(table, master)
-                };
-            }
-            catch (Exception ex)
-            {
-                return new Response<Tuple<DataTable, ForecastMaster>>
-                {
-                    Success = false,
-                    Status = StatusType.Error,
-                    Message = $"An unexpected error occurred while retrieving legacy forecast data from the database: {ex.Message}"
-                              + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                              + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
-                };
-            }
-        }
-
         public Response<Tuple<DataTable, ForecastMaster>> GetForecastDataFromDB(string month, string year)
         {
             try
@@ -518,7 +455,7 @@ namespace WIPAT.DAL
                 }
 
                 var details = master.Details
-                        .Where(d => d.ItemCatalogue != null && (d.ItemCatalogue.isActive || master.IsContinueWithInactiveItems))
+                        .Where(d => d.ItemCatalogue != null && (d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active || master.IsContinueWithInactiveItems))
                         .OrderBy(d => d.CASIN)
                         .ToList();
 
@@ -529,32 +466,29 @@ namespace WIPAT.DAL
 
                 DataTable table = new DataTable();
                 table.Columns.Add("C-ASIN", typeof(string));
+                table.Columns.Add("ItemStatus", typeof(int)); // Used for robust Enum formatting
                 table.Columns.Add("Requested Quantity", typeof(int));
-                table.Columns.Add("WIP", typeof(int));
+                //table.Columns.Add("WIP", typeof(int));
                 table.Columns.Add("Commitment period", typeof(int));
                 table.Columns.Add("PO Date", typeof(DateTime));
                 table.Columns.Add("Month", typeof(string));
                 table.Columns.Add("Year", typeof(string));
 
-                // ---> ADDED: Required for UI Stats <---
-                table.Columns.Add("IsActive", typeof(bool));
-                table.Columns.Add("ItemStatus", typeof(string));
 
                 foreach (var d in details)
                 {
-                    bool isActive = d.ItemCatalogue != null ? d.ItemCatalogue.isActive : true;
-                    string itemStatus = d.ItemCatalogue != null ? (d.ItemCatalogue.ItemStatus ?? (isActive ? "Valid" : "Inactive")) : "Missing";
+                    bool isActive = d.ItemCatalogue != null ? d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active : true;
+                    int itemStatus = d.ItemCatalogue != null ? d.ItemCatalogue.ItemStatus : (int)CatalogueItemStatus.Invalid;
 
                     table.Rows.Add(
                         d.CASIN ?? (object)DBNull.Value,
+                        itemStatus,
                         d.RequestedQuantity,
-                        d.Wip ?? (object)DBNull.Value,
+                        //d.Wip ?? (object)DBNull.Value,
                         d.CommitmentPeriod,
                         d.PODate,
                         d.Month ?? (object)DBNull.Value,
-                        d.Year ?? (object)DBNull.Value,
-                        isActive,
-                        itemStatus
+                        d.Year ?? (object)DBNull.Value
                     );
                 }
 
@@ -577,6 +511,7 @@ namespace WIPAT.DAL
                 };
             }
         }
+
         public Response<bool> MarkForecastMasterAsWIPCalculated(string fileName)
         {
             try
@@ -611,12 +546,19 @@ namespace WIPAT.DAL
                 .Include(m => m.Details)
                 .FirstOrDefault(m => m.FileName == fileName && m.Month == month && m.Year == year);
         }
-
         public Response<List<ForecastMaster>> GetAvailableForecastsFromDB()
         {
             try
             {
-                var forecasts = _context.ForecastMasters.Include(f => f.Details).ToList();
+                var projected = _context.ForecastMasters
+                                        .AsNoTracking()
+                                        .Where(f => f.IsWipCalculated == false) // Filter applied here
+                                        .Select(f => new { f.Month, f.Year })
+                                        .Distinct()
+                                        .ToList();
+
+                var forecasts = projected.Select(p => new ForecastMaster { Month = p.Month, Year = p.Year }).ToList();
+
                 return new Response<List<ForecastMaster>> { Success = true, Data = forecasts };
             }
             catch (Exception ex)

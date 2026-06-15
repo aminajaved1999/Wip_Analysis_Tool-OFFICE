@@ -438,14 +438,47 @@ namespace WIPAT.DAL
 
         public int GetInitialStockValue(int itemCatalogueId)
         {
-            var stock = _context.InitialStocks.FirstOrDefault(s => s.ItemCatalogueId == itemCatalogueId);
-
-            if (stock == null)
+            // 1. Guard clauses to instantly detect DI or context setup issues
+            if (_context == null)
             {
-                throw new InvalidOperationException($"Stock not found for ItemCatalogueId: {itemCatalogueId}");
+                throw new InvalidOperationException("The database context is not initialized (null). Check your Dependency Injection configuration.");
             }
 
-            return stock.OpeningStock + stock.ProductionQty - stock.OrderQty;
+            if (_context.InitialStocks == null)
+            {
+                throw new InvalidOperationException("The InitialStocks table/DbSet is not initialized. Verify your DbContext mappings.");
+            }
+
+            try
+            {
+                // 2. Perform the database query
+                var stock = _context.InitialStocks.FirstOrDefault(s => s.ItemCatalogueId == itemCatalogueId);
+
+                if (stock == null)
+                {
+                    throw new InvalidOperationException($"Stock data not found for ItemCatalogueId: {itemCatalogueId}");
+                }
+
+                return stock.OpeningStock + stock.ProductionQty - stock.OrderQty;
+            }
+            catch (ArgumentNullException ex)
+            {
+                throw new InvalidOperationException("A required argument was unexpectedly null during the database lookup.", ex);
+            }
+            catch (System.Data.Entity.Core.EntityException ex)
+            {
+                throw new InvalidOperationException("A connection or data access error occurred while communicating with the database. Check your database server and connection string.", ex);
+            }
+            catch (NullReferenceException ex)
+            {
+                // Catches underlying provider failures such as an unresolvable or missing connection string
+                throw new InvalidOperationException("A null reference exception occurred during database execution. Verify that your connection string is correctly defined in the configuration file.", ex);
+            }
+            catch (Exception ex)
+            {
+                // Wrap and preserve original stack trace/exception details
+                throw new Exception($"An unexpected error occurred while fetching the initial stock value for ItemCatalogueId {itemCatalogueId}: {ex.Message}", ex);
+            }
         }
 
 

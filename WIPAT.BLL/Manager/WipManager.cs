@@ -464,30 +464,26 @@ namespace WIPAT.BLL.Manager
 
         private List<SimulationInputData> FetchProductionData(WIPATContext context, List<string> asinList, string currentMonth)
         {
-            // Fetch Map
-            //var itemCatalogueMap = context.ItemCatalogues
-            //    .Where(i => asinList.Contains(i.Casin))
-            //    .ToDictionary(i => i.Casin, i => i.Id);
+            // Check the session flag to see if we should include inactive items
+            bool includeInactive = _session.IsContinueWithInactiveItems;
 
             var itemCatalogueMap = context.ItemCatalogues
-                .Where(i => i.isActive && asinList.Contains(i.Casin))
-                .ToDictionary(i => i.Casin, i => i.Id);
-
+                        // ---> UPDATED: Use Enum <---
+                        .Where(i => (i.ItemStatus == (int)CatalogueItemStatus.Active || includeInactive) && asinList.Contains(i.Casin))
+                        .ToDictionary(i => i.Casin, i => i.Id);
 
             var itemIds = itemCatalogueMap.Values.ToList();
 
-            // Fetch Orders
             var actualOrderMap = context.ActualOrders
                 .Where(a => itemIds.Contains(a.ItemCatalogueId) && a.Month == currentMonth)
                 .ToDictionary(a => a.ItemCatalogueId, a => (int?)a.Quantity ?? 0);
 
-            // Combine results into a clean DTO
             return itemCatalogueMap.Select(kv => new SimulationInputData
             {
                 Asin = kv.Key,
                 ItemId = kv.Value,
                 ActualOrderQty = actualOrderMap.ContainsKey(kv.Value) ? actualOrderMap[kv.Value] : 0,
-                InitialStock = _stockRepository.GetInitialStockValue(kv.Value) // Assuming stockRepository is available in class scope
+                InitialStock = _stockRepository.GetInitialStockValue(kv.Value)
             }).ToList();
         }
         #endregion

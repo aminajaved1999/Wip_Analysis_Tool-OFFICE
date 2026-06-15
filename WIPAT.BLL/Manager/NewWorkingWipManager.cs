@@ -22,17 +22,14 @@ namespace WIPAT.BLL.Manager
         private readonly IStockRepository _stockRepository;
         private readonly WipSession _session;
 
-        // Static readonly arrays for ultra-fast lookup without re-allocating memory
         private static readonly string[] Months = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
 
-        // Helper model to store pre-fetched WIP Details
         private class CachedWipData
         {
             public int? WipQuantity { get; set; }
             public double? ForecastData { get; set; }
         }
 
-        // Constructor Injection
         public NewWorkingWipManager(
             IWipRepository wipRepository,
             IForecastRepository forecastRepository,
@@ -46,11 +43,6 @@ namespace WIPAT.BLL.Manager
         }
 
         #region Public Methods
-        /// <summary>
-        /// Builds the main Work-in-Progress (WIP) data table for a list of ASINs.
-        /// It simulates stock, orders, and forecasts month-by-month
-        /// and applies final MOQ (Minimum Order Quantity) and CasePack adjustments.
-        /// </summary>
         public Response<DataTable> BuildCommonWipDataTable(
          List<string> asinList,
          ForecastMaster previousForecast,
@@ -69,25 +61,17 @@ namespace WIPAT.BLL.Manager
 
             try
             {
-                // 1. Setup Output Table
                 AddDataTableColumns(resultTable, previousForecast, currentForecast, wipType, isCasePackEnabled, moq);
 
                 using (var context = new WIPATContext())
                 {
-                    // 2. BULK FETCH Data (Resolves the N+1 Query Problem)
-                    // Fetch Production Data
-                    //var productionData = FetchProductionData(context, asinList, currentForecast.Month);
                     var productionData = FetchProductionData(context, itemsCatalogueData, currentForecast.Month);
-
-                    // Fetch Forecast Details for all ASINs into memory
                     var prevForecastMap = FetchForecastsBulk(context, asinList, previousForecast.Month, previousForecast.Year);
                     var currForecastMap = FetchForecastsBulk(context, asinList, currentForecast.Month, currentForecast.Year);
 
-                    // Fetch Wip Details for all relevant years into memory
                     var targetYears = new List<string> { previousForecast.Year.ToString(), currentForecast.Year.ToString() }.Distinct().ToList();
                     var wipDataMap = FetchWipDetailsBulk(context, asinList, targetYears);
 
-                    // 3. Process Each ASIN
                     foreach (var dataItem in productionData)
                     {
                         ProcessSingleAsin(
@@ -109,7 +93,6 @@ namespace WIPAT.BLL.Manager
                     }
                 }
 
-                // 4. Validation
                 var countProcessed = resultTable.AsEnumerable()
                     .Count(row => row.Field<string>($"CommitmentPeriod ({currentForecast.Month})") == "3");
 
@@ -156,7 +139,6 @@ namespace WIPAT.BLL.Manager
         {
             var result = new Dictionary<string, List<ForecastDetail>>();
 
-            // Chunking prevents SQL 'Too Many Parameters' exception on large ASIN lists
             foreach (var chunk in ChunkList(asinList, 1500))
             {
                 var data = context.ForecastDetails
@@ -221,7 +203,6 @@ namespace WIPAT.BLL.Manager
                 return details;
             }
 
-            // Return default 0-value records if missing
             var defaultforecastDetails = new List<ForecastDetail>();
             int NoOfCommitmentRecords = 6;
             for (int i = 0; i <= NoOfCommitmentRecords; i++)
@@ -445,8 +426,9 @@ namespace WIPAT.BLL.Manager
         private void AddDataTableColumns(DataTable result, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, string wipType, bool checkBoxCasePack, int? MOQ)
         {
             result.Columns.Add("C-ASIN", typeof(string));
-            result.Columns.Add("IsActive", typeof(bool));
-            result.Columns.Add("ItemStatus", typeof(string)); 
+            // Removed IsActive, using ItemStatus int
+            result.Columns.Add("ItemStatus", typeof(int));
+
             result.Columns.Add("Month", typeof(string));
             result.Columns.Add("Year", typeof(string));
             result.Columns.Add("PO_Date", typeof(DateTime));
@@ -463,7 +445,7 @@ namespace WIPAT.BLL.Manager
             if (wipType == WipType.LaymanFormula.ToString() || wipType == WipType.Layman.ToString())
             {
                 result.Columns.Add("Delta", typeof(int));
-                result.Columns.Add("Stock_Layman", typeof(string)); // Avoid naming clash with 'Stock'
+                result.Columns.Add("Stock_Layman", typeof(string));
             }
             result.Columns.Add("grossRequirement", typeof(double));
 
@@ -489,15 +471,13 @@ namespace WIPAT.BLL.Manager
        string wipType, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, int? rawCalculatedWip
             , double? grossRequirement
             , double? arriving133percent
-            , bool isActive
-            , string itemStatus
+            , int itemStatus
             )
         {
             int delta = qty2 - qty1;
 
             DataRow newRow = result.NewRow();
             newRow["C-ASIN"] = asin;
-            newRow["IsActive"] = isActive;
             newRow["ItemStatus"] = itemStatus;
             newRow["Month"] = pODate.ToString("MMMM");
             newRow["Year"] = pODate.ToString("yyyy");
@@ -535,12 +515,10 @@ namespace WIPAT.BLL.Manager
 
         private List<SimulationInputData> _FetchProductionData(WIPATContext context, List<string> asinList, string currentMonth)
         {
-            // Check the session flag to see if we should include inactive items
             bool includeInactive = _session.IsContinueWithInactiveItems;
 
             var itemCatalogueMap = context.ItemCatalogues
-                        // UPDATED: Allow inactive items through if the flag is true
-                        .Where(i => (i.isActive || includeInactive) && asinList.Contains(i.Casin))
+                        .Where(i => (i.ItemStatus == (int)CatalogueItemStatus.Active || includeInactive) && asinList.Contains(i.Casin))
                         .ToDictionary(i => i.Casin, i => i.Id);
 
             var itemIds = itemCatalogueMap.Values.ToList();
@@ -559,15 +537,12 @@ namespace WIPAT.BLL.Manager
         }
         private List<SimulationInputData> FetchProductionData(WIPATContext context, List<ItemCatalogue> asinList, string currentMonth)
         {
-            // 1. We already have the exact 2,720 items in 'catalogue', no need to query the DB for them!
             var itemIds = asinList.Select(c => c.Id).ToList();
 
-            // 2. Fetch actual orders for these items
             var actualOrderMap = context.ActualOrders
                 .Where(a => itemIds.Contains(a.ItemCatalogueId) && a.Month == currentMonth)
                 .ToDictionary(a => a.ItemCatalogueId, a => (int?)a.Quantity ?? 0);
 
-            // 3. Build the production data list
             return asinList.Select(item => new SimulationInputData
             {
                 Asin = item.Casin,
@@ -595,17 +570,14 @@ namespace WIPAT.BLL.Manager
         Dictionary<string, List<ForecastDetail>> currForecastMap,
         Dictionary<string, CachedWipData> wipDataMap)
         {
-            if (data.Asin == "B075JNL94T") { var x = 1; }
-            if (data.Asin == "B07F1QG47Y") { var x = 4; }
-
-            // Fetch from highly-optimized memory dictionaries
             var prevDetails = GetForecastDetailsFromMap(prevForecastMap, data.Asin);
             var currDetails = GetForecastDetailsFromMap(currForecastMap, data.Asin);
 
             var catalogueItem = catalogue?.FirstOrDefault(i => i.Casin == data.Asin);
             int? casePackQty = catalogueItem?.CasePackQty;
-            bool isActive = catalogueItem?.isActive ?? false;
-            string itemStatus = catalogueItem?.ItemStatus ?? string.Empty;
+
+            int itemStatus = catalogueItem != null ? catalogueItem.ItemStatus : (int)CatalogueItemStatus.Invalid;
+            bool isActive = itemStatus == (int)CatalogueItemStatus.Active;
 
             var periods = prevDetails.Select(f => f.CommitmentPeriod)
                 .Union(currDetails.Select(f => f.CommitmentPeriod))
@@ -697,22 +669,17 @@ namespace WIPAT.BLL.Manager
 
                 if (period < targetPeriod) rawCalculatedWip = arrivingWip;
 
-                if (data.Asin == "B075JNL94T") { var x = 1; }
-
-                // Set WIP to 0 if the item is inactive OR if the item status is "Invalid"
-                if (!isActive || string.Equals(itemStatus, ItemStatus.Invalid.ToString(), StringComparison.OrdinalIgnoreCase))
+                if (!isActive || itemStatus == (int)CatalogueItemStatus.Invalid)
                 {
                     rawCalculatedWip = 0;
                 }
 
                 int? finalWip = ApplyMoqAndCasePack(rawCalculatedWip, moq, isCasePackEnabled, casePackQty, out int? moqWip, out int? casePackWip);
 
-                //Intercept the null casePackWip if the raw WIP is 0 and CasePack is globally enabled
                 if (rawCalculatedWip == 0 && isCasePackEnabled && casePackWip == null)
                 {
                     casePackWip = 0;
                 }
-
 
                 int remainingStock = CalculateRemainingStock(period, targetPeriod, currentStock, demand, prevForecastQty, arrivingWip, currForecastQty, wipType, arriving133percent);
 
@@ -727,7 +694,6 @@ namespace WIPAT.BLL.Manager
                     wipType, prevForecast, currForecast, rawCalculatedWip,
                      grossRequirement,
                      arriving133percent,
-                     isActive,
                     itemStatus
                 );
 
@@ -848,11 +814,6 @@ namespace WIPAT.BLL.Manager
 
         #endregion process single asin
 
-        /// <summary>
-        /// Retrieves all forecast details for a specific ASIN, month, and year.
-        /// If no details are found, it generates a list of "default" details (CP 0-6) with zero values.
-        /// </summary>
-        /// <returns>A list of <see cref="ForecastDetail"/> objects.</returns>
         public List<ForecastDetail> GetForecastDetails(string casin, string month, string year)
         {
             using (var context = new WIPATContext())
@@ -868,7 +829,6 @@ namespace WIPAT.BLL.Manager
                     .Select(joined => joined.ForecastDetail)
                     .ToList();
 
-                // If no records exist for this item, create a default set of 0-value records.
                 if (forecastDetails == null || forecastDetails.Count == 0)
                 {
                     var defaultforecastDetails = new List<ForecastDetail>();
@@ -893,15 +853,14 @@ namespace WIPAT.BLL.Manager
 
         #region save
         /// <summary>
-        /// Saves the calculated WIP data from the DataTable into the database.
-        /// This method performs a complete "upsert" (Insert/Update) operation
-        /// for WipMaster, WipDetails, and updates related ForecastDetails and Stock.
+        /// Validates session data, parses input tables, and persists Work-in-Progress (WIP) records.
         /// </summary>
-        /// <param name="finalDataTable">The DataTable from the UI (e.g., a grid) containing the *final* WIP values.</param>
-        /// <param name="capacity">The capacity setting (e.g., "MonthOfSupply") to save to the master record.</param>
-        /// <param name="wipColName">The specific column name (e.g., "Review_Wip") to use as the final WIP quantity.</param>
-        /// <param name="stockDataTable">A DataTable of stock values to be updated.</param>
-        /// <returns>A Response object indicating success or failure.</returns>
+        /// <remarks>
+        /// <para><b>Operations:</b> Processes the data table, de-duplicates records, inserts/updates WIP Master and Detail records, 
+        /// marks the forecast as calculated, and updates stock via repository, all within a single database transaction.</para>
+        /// <para><b>Tables/Entities Affected:</b> WipMasters, WipDetails, ForecastMasters, 
+        /// and externally updates the Stock table via repository.</para>
+        /// </remarks>
         public async Task<Response<bool>> SaveWipRecordsAsync(DataTable finalDataTable, string capacity, string wipColName, DataTable stockDataTable, WipSession wipSession)
         {
             var response = new Response<bool>();
@@ -955,18 +914,14 @@ namespace WIPAT.BLL.Manager
                     int? cpWip = GetInt(row, "CasePack_Wip");
                     double? grossReq = row["grossRequirement"] as double?;
 
-                    // Map IsActive column
-                    bool isActive = false;
-                    if (finalDataTable.Columns.Contains("IsActive") && row["IsActive"] != DBNull.Value)
-                    {
-                        bool.TryParse(row["IsActive"].ToString(), out isActive);
-                    }
-
-                    // Map ItemStatus column
-                    string itemStatus = string.Empty;
+                    // Extract ItemStatus int enum
+                    int itemStatus = (int)CatalogueItemStatus.Invalid;
                     if (finalDataTable.Columns.Contains("ItemStatus") && row["ItemStatus"] != DBNull.Value)
                     {
-                        itemStatus = row["ItemStatus"].ToString().Trim();
+                        if (int.TryParse(row["ItemStatus"].ToString(), out int parsedStatus))
+                        {
+                            itemStatus = parsedStatus;
+                        }
                     }
 
                     int? finalWip = null;
@@ -986,8 +941,10 @@ namespace WIPAT.BLL.Manager
                         CommitmentPeriod = cPeriod,
                         WipQuantity = finalWip,
                         SystemWip = finalWip,
-                        IsActive = isActive,
-                        ItemStatus = itemStatus, // Added ItemStatus mapping here
+
+                        // Assign INT
+                        ItemStatus = itemStatus,
+
                         LaymanFormula = wipType == WipType.LaymanFormula.ToString() ? finalWip : null,
                         Layman = wipType == WipType.Layman.ToString() ? finalWip : null,
                         Analyst = wipType == WipType.Analyst.ToString() ? finalWip : null,
@@ -1014,14 +971,12 @@ namespace WIPAT.BLL.Manager
                 using (var context = new WIPATContext())
                 using (var tx = context.Database.BeginTransaction())
                 {
-                    // MEGA OPTIMIZATIONS FOR SAVING
                     context.Configuration.AutoDetectChangesEnabled = false;
-                    context.Configuration.ValidateOnSaveEnabled = false; // Disables slow EF validation checking
+                    context.Configuration.ValidateOnSaveEnabled = false;
                     context.Database.CommandTimeout = 300;
 
                     try
                     {
-                        // 3a. Map ItemCatalogue Ids
                         var itemCatalogueMap = await context.ItemCatalogues
                             .Where(ic => distinctCasins.Contains(ic.Casin))
                             .Select(ic => new { ic.Casin, ic.Id })
@@ -1040,37 +995,9 @@ namespace WIPAT.BLL.Manager
                         if (missingCasins.Any())
                             throw new Exception($"Failed to map ItemCatalogueId for Casins: {string.Join(", ", missingCasins.Distinct())}");
 
-                        // 3b. FAST Raw SQL Batch Update for ForecastDetails
                         var forecastMaster = await context.ForecastMasters.AsNoTracking().FirstOrDefaultAsync(fm => fm.FileName == fileName);
                         if (forecastMaster == null) throw new Exception($"POForecastMaster not found for file '{fileName}'");
 
-                        var fdIds = await context.ForecastDetails
-                            .Where(fd => fd.POForecastMasterId == forecastMaster.Id
-                                      && distinctCasins.Contains(fd.CASIN)
-                                      && distinctPeriods.Contains(fd.CommitmentPeriod.ToString()))
-                            .Select(fd => new { fd.Id, Key = fd.CASIN + "|" + fd.CommitmentPeriod })
-                            .AsNoTracking()
-                            .ToListAsync();
-
-                        var incomingMap = dedupedDetails.ToDictionary(k => k.CASIN + "|" + k.CommitmentPeriod);
-                        var forecastSqlBatch = new StringBuilder();
-
-                        // Eliminates 1 query per row! Builds 1 large SQL command instead.
-                        foreach (var fd in fdIds)
-                        {
-                            if (incomingMap.TryGetValue(fd.Key, out var match))
-                            {
-                                string wipVal = match.WipQuantity.HasValue ? match.WipQuantity.Value.ToString() : "NULL";
-                                forecastSqlBatch.AppendLine($"UPDATE ForecastDetails SET Wip = {wipVal} WHERE Id = {fd.Id};");
-                            }
-                        }
-
-                        if (forecastSqlBatch.Length > 0)
-                        {
-                            await context.Database.ExecuteSqlCommandAsync(forecastSqlBatch.ToString());
-                        }
-
-                        // 3c. Upsert WipMaster
                         var wipMaster = await context.WipMasters
                             .FirstOrDefaultAsync(wm => wm.FileName == fileName && wm.TargetMonth == targetMonthName);
 
@@ -1097,12 +1024,11 @@ namespace WIPAT.BLL.Manager
                         {
                             wipMaster.UpdatedAt = DateTime.Now;
                             wipMaster.UpdatedById = _session.LoggedInUser.Id;
+                            wipMaster.IsCasePackChecked = globalIsCasePack;
                             wipMaster.WipProcessingType = capacity;
                             wipMaster.MOQ = globalMoq;
-                            wipMaster.IsCasePackChecked = globalIsCasePack;
                         }
 
-                        // 3d. Chunked Upsert WipDetails
                         var existingWipDetails = await context.WipDetails
                             .Where(d => d.WipMaster_Id == wipMaster.Id)
                             .Select(d => new { d.Id, Key = d.CASIN + "|" + d.CommitmentPeriod })
@@ -1129,7 +1055,6 @@ namespace WIPAT.BLL.Manager
                             }
 
                             iterationCount++;
-                            // Commit every 1000 items so EF Memory doesn't overload
                             if (iterationCount % 1000 == 0)
                             {
                                 if (detailsToInsert.Any())
@@ -1141,13 +1066,11 @@ namespace WIPAT.BLL.Manager
                             }
                         }
 
-                        // Save any remaining WipDetails
                         if (detailsToInsert.Any())
                         {
                             context.WipDetails.AddRange(detailsToInsert);
                         }
 
-                        // 3e. Finalize & Stock Update
                         var masterStub = new ForecastMaster { Id = forecastMaster.Id, IsWipCalculated = true };
                         context.ForecastMasters.Attach(masterStub);
                         context.Entry(masterStub).Property(x => x.IsWipCalculated).IsModified = true;
@@ -1156,7 +1079,7 @@ namespace WIPAT.BLL.Manager
                         if (!stockResult.Success) throw new Exception(stockResult.Message);
 
                         await context.SaveChangesAsync();
-                        tx.Commit(); // Commit everything to the DB
+                        tx.Commit();
                         #endregion
 
                         response.Success = true;
@@ -1186,303 +1109,17 @@ namespace WIPAT.BLL.Manager
 
             return response;
         }
-        public async Task<Response<bool>> _SaveWipRecordsAsync(DataTable finalDataTable, string capacity, string wipColName, DataTable stockDataTable, WipSession wipSession)
-        {
-            // Initialize the single response variable
-            var response = new Response<bool>();
 
-            try
-            {
-                #region 1. Validation & Session Setup
-                var session = wipSession.Curr;
-                string fileName = session.FileName;
-                string wipType = wipSession.WipType;
-
-                var (targetMonthName, targetYear) = ParseTargetMonthAndYear(wipSession.TargetMonth);
-                if (targetYear == 0)
-                {
-                    response.Success = false;
-                    response.Status = StatusType.Error;
-                    response.Message = "Invalid year format in targetMonth.";
-                    response.Data = false;
-                    return response;
-                }
-
-                var (issuedMonthName, issuedYear) = ParseTargetMonthAndYear(wipSession.CurrentMonthWithYear);
-
-                #endregion
-
-                #region 2. Parse DataTable & Prepare Memory Objects
-                var newDetails = new List<WipDetail>(finalDataTable.Rows.Count);
-
-                // Helper local function to safely parse ints
-                int? GetInt(DataRow r, string col)
-                {
-                    if (finalDataTable.Columns.Contains(col) && r[col] != DBNull.Value && int.TryParse(r[col].ToString(), out int v))
-                        return v;
-                    return null;
-                }
-
-                // Check global flags once
-                int? globalMoq = null;
-                if (finalDataTable.Rows.Count > 0) globalMoq = GetInt(finalDataTable.Rows[0], "MOQ");
-
-                bool globalIsCasePack = finalDataTable.Columns.Contains("CasePack") && finalDataTable.AsEnumerable().Any(r => r["CasePack"] != DBNull.Value);
-
-                foreach (DataRow row in finalDataTable.Rows)
-                {
-                    string casin = row["C-Asin"]?.ToString()?.Trim();
-                    string cPeriod = row[$"CommitmentPeriod ({session.Month})"]?.ToString()?.Trim();
-
-                    if (string.IsNullOrEmpty(casin) || string.IsNullOrEmpty(cPeriod))
-                        continue;
-
-                    // Parse columns
-                    int? reviewWip = GetInt(row, "Review_Wip");
-                    int? moqWip = GetInt(row, "MOQ_Wip");
-                    int? cpWip = GetInt(row, "CasePack_Wip");
-                    double? grossReq = row["grossRequirement"] as double?;
-
-                    // Parse IsActive column
-                    bool isActive = false;
-                    if (finalDataTable.Columns.Contains("IsActive") && row["IsActive"] != DBNull.Value)
-                    {
-                        bool.TryParse(row["IsActive"].ToString(), out isActive);
-                    }
-
-                    // C# 7.3 compatible switch
-                    int? finalWip = null;
-                    switch (wipColName)
-                    {
-                        case "CasePack_Wip": finalWip = cpWip; break;
-                        case "MOQ_Wip": finalWip = moqWip; break;
-                        case "Review_Wip": finalWip = reviewWip; break;
-                    }
-
-                    var detail = new WipDetail
-                    {
-                        CASIN = casin,
-                        Month = row["Month"]?.ToString(),
-                        Year = row["Year"]?.ToString(),
-                        Stock = GetInt(row, "Stock"),
-                        CommitmentPeriod = cPeriod,
-                        WipQuantity = finalWip,
-                        SystemWip = finalWip,
-
-                        // NEW: Map the extracted IsActive value to your entity
-                        IsActive = isActive,
-
-                        // Specific Logic columns
-                        LaymanFormula = wipType == WipType.LaymanFormula.ToString() ? finalWip : null,
-                        Layman = wipType == WipType.Layman.ToString() ? finalWip : null,
-                        Analyst = wipType == WipType.Analyst.ToString() ? finalWip : null,
-                        ForecastData = grossReq,
-                        // Meta data
-                        Review_Wip = reviewWip,
-                        MOQ_Wip = moqWip,
-                        CasePack_Wip = cpWip,
-                        CasePack = GetInt(row, "CasePack"),
-                        PODate = DateTime.Now
-                    };
-                    newDetails.Add(detail);
-                }
-
-                // Deduplicate
-                var dedupedDetails = newDetails
-                    .GroupBy(x => x.CASIN + "|" + x.CommitmentPeriod)
-                    .Select(g => g.Last())
-                    .ToList();
-
-                var distinctCasins = dedupedDetails.Select(d => d.CASIN).Distinct().ToList();
-                var distinctPeriods = dedupedDetails.Select(d => d.CommitmentPeriod).Distinct().ToList();
-                #endregion
-
-                #region 3. Database Transaction & Execution
-                using (var context = new WIPATContext())
-                using (var tx = context.Database.BeginTransaction())
-                {
-                    context.Configuration.AutoDetectChangesEnabled = false;
-                    context.Database.CommandTimeout = 180;
-
-                    try
-                    {
-                        // ==============================================================
-                        // NEW: Map ItemCatalogue Ids to WipDetails
-                        // ==============================================================
-                        var itemCatalogueMap = await context.ItemCatalogues
-                            .Where(ic => distinctCasins.Contains(ic.Casin))
-                            .Select(ic => new { ic.Casin, ic.Id })
-                            .AsNoTracking()
-                            .ToDictionaryAsync(k => k.Casin, v => v.Id);
-
-                        var missingCasins = new List<string>();
-
-                        foreach (var detail in dedupedDetails)
-                        {
-                            if (itemCatalogueMap.TryGetValue(detail.CASIN, out int catalogueId))
-                            {
-                                detail.ItemCatalogueId = catalogueId; // Assign mapped ID
-                            }
-                            else
-                            {
-                                missingCasins.Add(detail.CASIN);
-                            }
-                        }
-
-                        if (missingCasins.Any())
-                        {
-                            // Throwing exception here triggers the rollback in the catch block
-                            throw new Exception($"Failed to map ItemCatalogueId for the following Casin(s): {string.Join(", ", missingCasins.Distinct())}");
-                        }
-                        // ==============================================================
-
-
-                        #region 3a. Update ForecastDetails
-                        var forecastMaster = await context.ForecastMasters.AsNoTracking().FirstOrDefaultAsync(fm => fm.FileName == fileName);
-                        if (forecastMaster == null) throw new Exception($"POForecastMaster not found for file '{fileName}'");
-
-                        var fdIds = await context.ForecastDetails
-                            .Where(fd => fd.POForecastMasterId == forecastMaster.Id
-                                      && distinctCasins.Contains(fd.CASIN)
-                                      && distinctPeriods.Contains(fd.CommitmentPeriod.ToString()))
-                            .Select(fd => new { fd.Id, Key = fd.CASIN + "|" + fd.CommitmentPeriod })
-                            .AsNoTracking()
-                            .ToListAsync();
-
-                        var incomingMap = dedupedDetails.ToDictionary(k => k.CASIN + "|" + k.CommitmentPeriod);
-
-                        foreach (var fd in fdIds)
-                        {
-                            if (incomingMap.TryGetValue(fd.Key, out var match))
-                            {
-                                var stub = new ForecastDetail { Id = fd.Id, Wip = match.WipQuantity };
-                                context.ForecastDetails.Attach(stub);
-                                context.Entry(stub).Property(x => x.Wip).IsModified = true;
-                            }
-                        }
-                        #endregion
-
-                        #region 3b. Upsert WipMaster
-                        var wipMaster = await context.WipMasters
-                            .FirstOrDefaultAsync(wm => wm.FileName == fileName && wm.TargetMonth == targetMonthName);
-
-                        if (wipMaster == null)
-                        {
-                            wipMaster = new WipMaster
-                            {
-                                FileName = fileName,
-                                IssuedMonth = issuedMonthName,
-                                IssuedYear = issuedYear.ToString(),
-                                TargetMonth = targetMonthName,
-                                TargetYear = targetYear,
-                                Type = wipType,
-                                WipProcessingType = capacity,
-                                MOQ = globalMoq,
-                                IsCasePackChecked = globalIsCasePack,
-                                CreatedAt = DateTime.Now,
-                                CreatedById = _session.LoggedInUser.Id
-                            };
-                            context.WipMasters.Add(wipMaster);
-                            await context.SaveChangesAsync();
-                        }
-                        else
-                        {
-                            wipMaster.UpdatedAt = DateTime.Now;
-                            wipMaster.UpdatedById = _session.LoggedInUser.Id;
-                            wipMaster.WipProcessingType = capacity;
-                            wipMaster.MOQ = globalMoq;
-                            wipMaster.IsCasePackChecked = globalIsCasePack;
-                        }
-                        #endregion
-
-                        #region 3c. Upsert WipDetails
-                        var existingWipDetails = await context.WipDetails
-                            .Where(d => d.WipMaster_Id == wipMaster.Id)
-                            .Select(d => new { d.Id, Key = d.CASIN + "|" + d.CommitmentPeriod })
-                            .AsNoTracking()
-                            .ToDictionaryAsync(k => k.Key, v => v.Id);
-
-                        var detailsToInsert = new List<WipDetail>();
-
-                        foreach (var item in dedupedDetails)
-                        {
-                            string key = item.CASIN + "|" + item.CommitmentPeriod;
-                            item.WipMaster_Id = wipMaster.Id;
-
-                            if (existingWipDetails.TryGetValue(key, out int existingId))
-                            {
-                                item.Id = existingId;
-                                context.WipDetails.Attach(item);
-                                context.Entry(item).State = EntityState.Modified;
-                            }
-                            else
-                            {
-                                detailsToInsert.Add(item);
-                            }
-                        }
-
-                        if (detailsToInsert.Any())
-                        {
-                            context.WipDetails.AddRange(detailsToInsert);
-                        }
-                        #endregion
-
-                        #region 3d. Finalize & Stock Update
-                        var masterStub = new ForecastMaster { Id = forecastMaster.Id, IsWipCalculated = true };
-                        context.ForecastMasters.Attach(masterStub);
-                        context.Entry(masterStub).Property(x => x.IsWipCalculated).IsModified = true;
-
-                        var stockResult = await _stockRepository.UpdateStockQtyInStockTable(stockDataTable, wipColName, session.Month, session.Year);
-                        if (!stockResult.Success) throw new Exception(stockResult.Message);
-
-                        await context.SaveChangesAsync();
-                        tx.Commit();
-                        #endregion
-
-                        // Success Path
-                        response.Success = true;
-                        response.Data = true;
-                        response.Status = StatusType.Success;
-                        response.Message = "WIP saved successfully.";
-                    }
-                    catch (Exception)
-                    {
-                        tx.Rollback();
-                        throw;
-                    }
-                    finally
-                    {
-                        context.Configuration.AutoDetectChangesEnabled = true;
-                    }
-                }
-                #endregion
-            }
-            catch (Exception ex)
-            {
-                response.Success = false;
-                response.Data = false;
-                response.Status = StatusType.Error;
-                response.Message = ex.Message + (ex.InnerException != null ? " Inner: " + ex.InnerException.Message : "");
-            }
-
-            return response;
-        }
-
-        /// <summary>
-        /// Parses a target month string (e.g., "May 2025") into its name and year.
-        /// </summary>
-        /// <param name="targetMonth">The string to parse.</param>
-        /// <returns>A tuple of (string MonthName, int Year). Year is 0 if parse fails.</returns>
         private (string, int) ParseTargetMonthAndYear(string targetMonth)
         {
             string[] parts = targetMonth.Split(' ');
             if (parts.Length != 2)
             {
-                return (null, 0); // Invalid format
+                return (null, 0);
             }
 
-            string targetMonthName = parts[0]; // e.g., "May"
-            string targetYearStr = parts[1];   // e.g., "2025"
+            string targetMonthName = parts[0];
+            string targetYearStr = parts[1];
 
             if (int.TryParse(targetYearStr, out int targetYear))
             {
@@ -1490,7 +1127,7 @@ namespace WIPAT.BLL.Manager
             }
             else
             {
-                return (null, 0); // Invalid year format
+                return (null, 0);
             }
         }
         #endregion save

@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Configuration;
-using System.Configuration; 
 using System.Data;
 using System.Drawing;
 using System.Globalization;
@@ -18,7 +17,6 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
-using static System.Data.Entity.Infrastructure.Design.Executor;
 
 namespace WIPAT.BLL.Services
 {
@@ -31,10 +29,9 @@ namespace WIPAT.BLL.Services
         {
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _itemsRepository = itemsRepo ?? throw new ArgumentNullException(nameof(itemsRepo));
-
         }
 
-        #region  validate excel file
+        #region validate excel file
 
         public async Task<Response<bool>> ValidateExcelFile(string filePath, string fileType, string requiredWorkSheetName, List<string> requiredExcelColumns,
             string requiredMonth = null,
@@ -45,7 +42,6 @@ namespace WIPAT.BLL.Services
             var allowedExtensions = new[] { ".xls", ".xlsx" };
             List<string> casinList = new List<string>();
 
-            // Local helper function to quickly return errors
             Response<bool> CreateErrorResponse(string errorMessage)
             {
                 return new Response<bool> { Success = false, Message = errorMessage };
@@ -90,7 +86,6 @@ namespace WIPAT.BLL.Services
                     #endregion
 
                     #region Header Validation & Column Mapping
-                    // 1. Get all headers from the first row
                     var totalColumns = worksheet.Dimension.End.Column;
                     var excelHeaders = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -103,7 +98,6 @@ namespace WIPAT.BLL.Services
                         }
                     }
 
-                    // 2. Check for Missing Columns
                     var missingColumns = requiredExcelColumns.Where(rc => !excelHeaders.ContainsKey(rc)).ToList();
 
                     if (missingColumns.Any())
@@ -114,20 +108,16 @@ namespace WIPAT.BLL.Services
 
                     #region Data Validation
 
-                    // Helper functions
                     bool IsNumeric(string s) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
                     bool IsEmpty(string s) => string.IsNullOrWhiteSpace(s);
 
-                    // Loop through rows
                     for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
                     {
                         foreach (var colName in requiredExcelColumns)
                         {
-                            // Get the actual column index from our map
                             int colIndex = excelHeaders[colName];
                             string cellValue = worksheet.Cells[row, colIndex].Text?.Trim();
 
-                            // --- Validation Rules ---
                             if (string.IsNullOrWhiteSpace(cellValue))
                             {
                                 return CreateErrorResponse($"Column '{colName}' at row {row} cannot be empty.");
@@ -138,7 +128,6 @@ namespace WIPAT.BLL.Services
                                 casinList.Add(cellValue);
                             }
 
-                            // Case 1: Optional Numeric (CasePackQty)
                             if (colName == AllColumnNames.CasePackQty ||
                                 colName == StockOrderExcelColumns.Quantity.ToString() ||
                                 colName == StockOrderExcelColumns.Month.ToString() ||
@@ -149,7 +138,6 @@ namespace WIPAT.BLL.Services
                                     return CreateErrorResponse($"Column '{colName}' at row {row} must be numeric if provided. Found: '{cellValue}'.");
                                 }
                             }
-                            // Case 2: Required Numeric (PCPK, OpeningStock)
                             else if (colName == AllColumnNames.PCPK || colName == AllColumnNames.OpeningStock)
                             {
                                 if (IsEmpty(cellValue))
@@ -161,7 +149,6 @@ namespace WIPAT.BLL.Services
                                     return CreateErrorResponse($"Column '{colName}' at row {row} must be a valid number. Found: '{cellValue}'.");
                                 }
                             }
-                            // Case 3: Required Text (CAsin, Model, Description, etc.)
                             else if (colName == AllColumnNames.CAsin ||
                                      colName == AllColumnNames.Model ||
                                      colName == AllColumnNames.Description ||
@@ -191,31 +178,25 @@ namespace WIPAT.BLL.Services
 
                         foreach (var c in distinctCASINs)
                         {
-                            // Call the combined repository method
-                            bool? status = await _itemsRepository.CheckCAsinStatus(c);
+                            // Returns INT now
+                            int? status = await _itemsRepository.CheckCAsinStatus(c);
 
                             if (status == null)
                             {
-                                // Item doesn't exist at all
                                 missing.Add(c);
                             }
-                            else if (status == false)
+                            else if (status == (int)CatalogueItemStatus.Inactive || status == (int)CatalogueItemStatus.Invalid)
                             {
-                                // Item exists but isActive is false
                                 deactivated.Add(c);
                             }
                         }
 
-                        // Assign lists to response object immediately so they are available in all return paths
                         response.MissingItems = missing;
                         response.DeactivatedItems = deactivated;
 
                         if (missing.Any() || deactivated.Any())
                         {
-                            // ---> GENERATE THE DATATABLE <---
                             DataTable problemTable = CreateProblemItemsDataTable(missing, deactivated, filePath, requiredMonth, requiredYear);
-
-                            // Attach it to your response object (Uncomment if you added this property)
                             response.ProblemItemsTable = problemTable;
 
                             StringBuilder dialogText = new StringBuilder();
@@ -230,7 +211,7 @@ namespace WIPAT.BLL.Services
 
                             if (deactivated.Any())
                             {
-                                dialogText.AppendLine($"Deactivated in Catalogue ({deactivated.Count}):");
+                                dialogText.AppendLine($"Inactive or Invalid in Catalogue ({deactivated.Count}):");
                                 dialogText.AppendLine(string.Join(", ", deactivated));
                                 dialogText.AppendLine();
                             }
@@ -241,30 +222,28 @@ namespace WIPAT.BLL.Services
                                 dialogText.AppendLine("(Tip: Press Ctrl+C to copy this list)\n");
                             }
 
-                            // SCENARIO 1: MISSING ITEMS EXIST. Show MessageBox with ONLY an 'OK' button.
+                            // SCENARIO 1: MISSING ITEMS EXIST.
                             if (missing.Any())
                             {
                                 dialogText.AppendLine("Process cancelled. You must add the missing items to the catalogue first.");
-
                                 MessageBox.Show(dialogText.ToString(), "Problem Items - Action Required", MessageBoxButtons.OK, MessageBoxIcon.Error);
 
                                 string message = $"Process cancelled. Found {missing.Count} missing item{(missing.Count > 1 ? "s" : "")}";
                                 if (deactivated.Any())
                                 {
-                                    message += $" and {deactivated.Count} deactivated item{(deactivated.Count > 1 ? "s" : "")}";
+                                    message += $" and {deactivated.Count} inactive item{(deactivated.Count > 1 ? "s" : "")}";
                                 }
                                 message += ". Please update the catalogue first.";
 
                                 var errorResponse = CreateErrorResponse(message);
                                 errorResponse.MissingItems = missing;
                                 errorResponse.DeactivatedItems = deactivated;
-                                errorResponse.ProblemItemsTable = problemTable; // Attach here too
+                                errorResponse.ProblemItemsTable = problemTable;
                                 return errorResponse;
                             }
                             // SCENARIO 2: ONLY DEACTIVATED ITEMS.
                             else
                             {
-                                // ONLY allow bypass if the file type is Forecast
                                 if (fileType == FileType.Forecast.ToString())
                                 {
                                     dialogText.AppendLine("Do you want to create the WIP and ignore calculating WIP for these CASINs?\n");
@@ -275,26 +254,24 @@ namespace WIPAT.BLL.Services
 
                                     if (result == DialogResult.No)
                                     {
-                                        var errorResponse = CreateErrorResponse($"Process cancelled. Found {deactivated.Count} deactivated items. Please update the catalogue first.");
+                                        var errorResponse = CreateErrorResponse($"Process cancelled. Found {deactivated.Count} inactive items. Please update the catalogue first.");
                                         errorResponse.MissingItems = missing;
                                         errorResponse.DeactivatedItems = deactivated;
-                                        errorResponse.ProblemItemsTable = problemTable; // Attach here too
+                                        errorResponse.ProblemItemsTable = problemTable;
                                         return errorResponse;
                                     }
                                     else
                                     {
-                                        // User clicked 'Yes'. Update the success message to reflect ignored items.
                                         response.Message = $"File validated successfully (Ignored {deactivated.Count} problem CASINs).";
                                         response.IsContinueWithInactiveItems = true;
                                     }
                                 }
-                                // If NOT Forecast, cancel the process with an error
                                 else
                                 {
                                     string message = $"Process cancelled. Found {missing.Count} missing item{(missing.Count > 1 ? "s" : "")}";
                                     if (deactivated.Any())
                                     {
-                                        message += $" and {deactivated.Count} deactivated item{(deactivated.Count > 1 ? "s" : "")}";
+                                        message += $" and {deactivated.Count} inactive item{(deactivated.Count > 1 ? "s" : "")}";
                                     }
                                     message += ". Please update the catalogue first.";
 
@@ -306,15 +283,14 @@ namespace WIPAT.BLL.Services
                                     var errorResponse = CreateErrorResponse($"{message}");
                                     errorResponse.MissingItems = missing;
                                     errorResponse.DeactivatedItems = deactivated;
-                                    errorResponse.ProblemItemsTable = problemTable; // Attach here too
+                                    errorResponse.ProblemItemsTable = problemTable;
                                     return errorResponse;
                                 }
                             }
                         }
                     }
-                    #endregion Items in File that are MISSING or DEACTIVATED in DB 
+                    #endregion 
 
-                    // If we get here without returning, the file passed validation or user ignored warnings
                     response.Success = true;
                     if (string.IsNullOrEmpty(response.Message))
                     {
@@ -329,31 +305,27 @@ namespace WIPAT.BLL.Services
 
             return response;
         }
-        // Helper method to generate the DataTable
+
         private DataTable CreateProblemItemsDataTable(List<string> missingItems, List<string> deactivatedItems, string filePath, string month, string year)
         {
             DataTable dt = new DataTable("ProblemItems");
 
-            // Define columns
             dt.Columns.Add("Casin", typeof(string));
             dt.Columns.Add("Month", typeof(string));
             dt.Columns.Add("Year", typeof(string));
             dt.Columns.Add("FileName", typeof(string));
             dt.Columns.Add("Reason", typeof(string));
 
-            // Extract just the file name
             string fileName = Path.GetFileName(filePath);
 
-            // Add Deactivated items
             if (deactivatedItems != null)
             {
                 foreach (var casin in deactivatedItems)
                 {
-                    dt.Rows.Add(casin, month, year, fileName, "Deactivated");
+                    dt.Rows.Add(casin, month, year, fileName, "Deactivated/Invalid");
                 }
             }
 
-            // Add Missing items
             if (missingItems != null)
             {
                 foreach (var casin in missingItems)
@@ -432,7 +404,7 @@ namespace WIPAT.BLL.Services
                                                         .ToList();
 
                     var missingColumns = requiredExcelColumns
-                        .Where(col => col != AllColumnNames.IsActive) // Keep IsActive optional
+                        .Where(col => !col.Equals("IsActive", StringComparison.OrdinalIgnoreCase) && !col.Equals("ItemStatus", StringComparison.OrdinalIgnoreCase)) // Keep status optional
                         .Where(col => !cleanHeadersInExcel.Contains(col.Replace(" ", "").Trim().ToLower()))
                         .ToList();
 
@@ -477,40 +449,39 @@ namespace WIPAT.BLL.Services
                             bool IsNumeric(string s) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
                             bool IsEmpty(string s) => string.IsNullOrWhiteSpace(s);
 
-                            // --- STRICTOR ISACTIVE IN-LOOP VALIDATION ---
-                            if (columnName == AllColumnNames.IsActive)
+                            // --- FLEXIBLE ENUM STATUS VALIDATION ---
+                            if (strippedColumnKey == "itemstatus" || strippedColumnKey == "isactive")
                             {
                                 if (!actualHeadersInFile.ContainsKey(strippedColumnKey))
                                 {
-                                    continue; // Optional column is completely missing, skip safely
+                                    continue;
                                 }
 
                                 int fileColumnIndex = actualHeadersInFile[strippedColumnKey];
 
-                                // Get raw string text representation
                                 var cellText = worksheet.Cells[row, fileColumnIndex].Text.Trim();
                                 var cellValueStr = worksheet.Cells[row, fileColumnIndex].Value?.ToString()?.Trim() ?? "";
 
-                                // Check empty states
                                 if (string.IsNullOrWhiteSpace(cellText) && string.IsNullOrWhiteSpace(cellValueStr))
                                 {
                                     response.Success = false;
-                                    response.Message = $"Upload Failed: The column heading '{AllColumnNames.IsActive}' is present, therefore row {row} cannot be left empty. Please provide either TRUE or FALSE.";
+                                    response.Message = $"Upload Failed: The column heading '{columnName}' is present, therefore row {row} cannot be left empty. Please provide 0, 1, or 2.";
                                     dataTypesValid = false;
                                     break;
                                 }
 
-                                // Normalize checks to catch TRUE, FALSE, 1, 0, or underlying boolean evaluation types safely
                                 string normText = cellText.ToUpper();
                                 string normVal = cellValueStr.ToUpper();
 
-                                bool isValidTrue = (normText == "TRUE" || normText == "1" || normVal == "TRUE" || normVal == "1");
-                                bool isValidFalse = (normText == "FALSE" || normText == "0" || normVal == "FALSE" || normVal == "0");
+                                bool isValid = (normText == "1" || normText == "0" || normText == "2" ||
+                                                normText == "ACTIVE" || normText == "INACTIVE" || normText == "INVALID" ||
+                                                normText == "TRUE" || normText == "FALSE" ||
+                                                normVal == "1" || normVal == "0" || normVal == "2");
 
-                                if (!isValidTrue && !isValidFalse)
+                                if (!isValid)
                                 {
                                     response.Success = false;
-                                    response.Message = $"Upload Failed: Invalid value '{cellText}' at row {row} in the '{AllColumnNames.IsActive}' column. Value must be written explicitly as either TRUE or FALSE.";
+                                    response.Message = $"Upload Failed: Invalid value '{cellText}' at row {row} in the '{columnName}' column. Valid values are 0 (Inactive), 1 (Active), or 2 (Invalid).";
                                     dataTypesValid = false;
                                     break;
                                 }
@@ -523,16 +494,6 @@ namespace WIPAT.BLL.Services
                             int dynamicIndex = actualHeadersInFile[strippedColumnKey];
                             var cellValue = worksheet.Cells[row, dynamicIndex].Text;
 
-                            //if (columnName == AllColumnNames.CasePackQty)
-                            //{
-                            //    if (!IsEmpty(cellValue) && !IsNumeric(cellValue))
-                            //    {
-                            //        response.Success = false;
-                            //        response.Message = $"Column '{columnName}' at row {row} must be numeric if provided. Found: '{cellValue}'.";
-                            //        dataTypesValid = false;
-                            //    }
-                            //}
-                            //else 
                             if (columnName == AllColumnNames.PCPK || columnName == AllColumnNames.OpeningStock || columnName == AllColumnNames.CasePackQty)
                             {
                                 if (IsEmpty(cellValue))
@@ -624,7 +585,7 @@ namespace WIPAT.BLL.Services
             }
         }
 
-        #endregion  validate excel file
+        #endregion validate excel file
 
         #region Read Excel
         public Response<DataTable> ReadExcelToDataTable(string filePath, string sheetName, List<string> columnsToRead = null)
@@ -642,7 +603,6 @@ namespace WIPAT.BLL.Services
                         return new Response<DataTable> { Success = false, Message = $"Sheet {sheetName} not found or empty." };
                     }
 
-                    // 1. Map Headers to Column Indexes
                     var columnMapping = new Dictionary<string, int>();
                     for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
                     {
@@ -653,10 +613,8 @@ namespace WIPAT.BLL.Services
                         }
                     }
 
-                    // 2. Determine which columns to read
                     var targetColumns = columnsToRead ?? columnMapping.Keys.ToList();
 
-                    // 3. Create DataTable Columns
                     foreach (var colName in targetColumns)
                     {
                         if (columnMapping.ContainsKey(colName))
@@ -669,7 +627,6 @@ namespace WIPAT.BLL.Services
                         }
                     }
 
-                    // 4. Read Data Rows
                     for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
                     {
                         var newRow = table.NewRow();
@@ -681,10 +638,10 @@ namespace WIPAT.BLL.Services
                             string value = worksheet.Cells[row, colIndex].Text.Trim();
                             newRow[colName] = value;
 
-                            if (!string.IsNullOrEmpty(value)) 
+                            if (!string.IsNullOrEmpty(value))
                             {
                                 rowHasData = true;
-                            } 
+                            }
                         }
 
                         if (rowHasData)
@@ -712,7 +669,6 @@ namespace WIPAT.BLL.Services
             try
             {
 
-                // Validate the Excel file
                 var validationResponse = await ValidateItemCatalogueExcelFile(filePath);
                 if (!validationResponse.Success)
                 {
@@ -722,8 +678,6 @@ namespace WIPAT.BLL.Services
                 }
 
                 string workSheetName = validationResponse.Data;
-                // Get Item Catalogues DataTable
-                //Response<DataTable> resItemCatalogues = await GetItemCataloguesDataTableFromExcel(filePath, workSheetName);
                 Response<DataTable> resItemCatalogues = await GetItemCataloguesDataTableFromExcel(filePath, workSheetName, isUpdate);
                 if (resItemCatalogues.Success == false)
                 {
@@ -732,8 +686,6 @@ namespace WIPAT.BLL.Services
                     return response;
                 }
 
-                // Get Stock DataTable
-                //Response<DataTable> resInitialStock = await GetStockDataTableFromExcel(filePath, workSheetName);
                 Response<DataTable> resInitialStock = await GetStockDataTableFromExcel(filePath, workSheetName, isUpdate);
                 if (resInitialStock.Success == false)
                 {
@@ -778,12 +730,10 @@ namespace WIPAT.BLL.Services
 
                 using (var package = new ExcelPackage(new FileInfo(filePath)))
                 {
-                    // Check for the "Wip" sheet name
                     var ws = package.Workbook.Worksheets.FirstOrDefault(w => w.Name.Equals("Wip", StringComparison.OrdinalIgnoreCase));
                     if (ws == null || ws.Dimension == null)
                         return new Response<List<WipDetail>> { Success = false, Message = "No worksheet named 'Wip' or no data found." };
 
-                    // Locate the exact columns by header text
                     int FindCol(string headerName)
                     {
                         for (int col = 1; col <= ws.Dimension.End.Column; col++)
@@ -792,10 +742,9 @@ namespace WIPAT.BLL.Services
                             if (string.Equals(header, headerName, StringComparison.OrdinalIgnoreCase))
                                 return col;
                         }
-                        return -1;  // Return -1 if not found
+                        return -1;
                     }
 
-                    // Look for the exact headers for CASIN and WipQuantity
                     var casinCol = FindCol("CASIN");
                     var wipCol = FindCol("WipQuantity");
 
@@ -813,11 +762,9 @@ namespace WIPAT.BLL.Services
 
                         if (string.IsNullOrWhiteSpace(casin))
                         {
-                            // Skip blank/empty rows
                             continue;
                         }
 
-                        // Parse quantity using invariant first, then current culture as fallback
                         if (!int.TryParse(wipStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var qty) &&
                             !int.TryParse(wipStr, NumberStyles.Any, CultureInfo.CurrentCulture, out qty))
                         {
@@ -831,7 +778,6 @@ namespace WIPAT.BLL.Services
                             continue;
                         }
 
-                        // If duplicate CASIN appears, keep the last occurrence
                         if (seen.Contains(casin))
                         {
                             var idx = list.FindIndex(x => string.Equals(x.CASIN, casin, StringComparison.OrdinalIgnoreCase));
@@ -870,7 +816,6 @@ namespace WIPAT.BLL.Services
             {
                 List<string> requiredCatalogueTableColumns = AllColumnNames.CatalogueTableColumns.ToList();
 
-                // 1. Swap Creation columns for Update columns if in Update Mode
                 if (isUpdate)
                 {
                     requiredCatalogueTableColumns.Remove(AllColumnNames.CreatedAt);
@@ -887,7 +832,6 @@ namespace WIPAT.BLL.Services
                 DataTable dt = new DataTable();
                 foreach (var columnName in requiredCatalogueTableColumns)
                 {
-                    // Now fully handled by your updated AllColumnNames class!
                     Type columnType = AllColumnNames.GetColumnType(columnName);
                     dt.Columns.Add(columnName, columnType);
                 }
@@ -937,7 +881,8 @@ namespace WIPAT.BLL.Services
                             requiredCol == AllColumnNames.UpdatedAt || requiredCol == AllColumnNames.UpdatedById)
                             continue;
 
-                        if (requiredCol == AllColumnNames.IsActive)
+                        // Skip IsActive check directly to allow for ItemStatus flexibility
+                        if (requiredCol == "IsActive" || requiredCol == "ItemStatus")
                             continue;
 
                         string searchKey = requiredCol.Replace(" ", "").Trim();
@@ -970,14 +915,34 @@ namespace WIPAT.BLL.Services
                             {
                                 string searchKey = column.Replace(" ", "").Trim();
 
-                                if (column == AllColumnNames.IsActive && !actualColumnIndexes.ContainsKey(searchKey))
+                                // SMART MAPPING FOR STATUS ENUM
+                                if (searchKey == "itemstatus" || searchKey == "isactive")
                                 {
-                                    dr[column] = DBNull.Value;
+                                    if (!actualColumnIndexes.ContainsKey(searchKey))
+                                    {
+                                        dr[column] = DBNull.Value;
+                                        continue;
+                                    }
+
+                                    int dynamicColIndex = actualColumnIndexes[searchKey];
+                                    string cellValueStatus = worksheet.Cells[row, dynamicColIndex].Value?.ToString()?.Trim();
+
+                                    if (string.IsNullOrWhiteSpace(cellValueStatus))
+                                    {
+                                        dr[column] = DBNull.Value;
+                                    }
+                                    else
+                                    {
+                                        string norm = cellValueStatus.ToUpper();
+                                        if (norm == "1" || norm == "ACTIVE" || norm == "TRUE") dr[column] = 1;
+                                        else if (norm == "2" || norm == "INVALID") dr[column] = 2;
+                                        else dr[column] = 0; // Default to inactive for 0, FALSE, INACTIVE
+                                    }
                                     continue;
                                 }
 
-                                int dynamicColIndex = actualColumnIndexes[searchKey];
-                                string cellValue = worksheet.Cells[row, dynamicColIndex].Value?.ToString()?.Trim();
+                                int dynamicColIndexDefault = actualColumnIndexes[searchKey];
+                                string cellValue = worksheet.Cells[row, dynamicColIndexDefault].Value?.ToString()?.Trim();
 
                                 try
                                 {
@@ -1034,7 +999,6 @@ namespace WIPAT.BLL.Services
             {
                 List<string> requiredStockTableColumns = AllColumnNames.StockTableColumns.ToList();
 
-                // 1. Swap Creation columns for Update columns if in Update Mode
                 if (isUpdate)
                 {
                     requiredStockTableColumns.Remove(AllColumnNames.CreatedAt);
@@ -1052,7 +1016,6 @@ namespace WIPAT.BLL.Services
 
                 foreach (var columnName in requiredStockTableColumns)
                 {
-                    // Handled dynamically by the updated AllColumnNames mapping
                     Type columnType = AllColumnNames.GetColumnType(columnName);
                     dt.Columns.Add(columnName, columnType);
                 }
@@ -1140,7 +1103,6 @@ namespace WIPAT.BLL.Services
         {
             try
             {
-
                 #region validate inputs
                 if (data == null || !data.Any())
                 {
@@ -1182,14 +1144,11 @@ namespace WIPAT.BLL.Services
                         return;
                     }
 
-                    // Use reflection to get property names
                     var props = typeof(T).GetProperties();
 
-                    // Headers
                     for (int i = 0; i < props.Length; i++)
                         worksheet.Cells[1, i + 1].Value = props[i].Name;
 
-                    // Data
                     for (int row = 0; row < data.Count; row++)
                     {
                         for (int col = 0; col < props.Length; col++)
@@ -1198,7 +1157,6 @@ namespace WIPAT.BLL.Services
                         }
                     }
 
-                    // Style header
                     using (var range = worksheet.Cells[1, 1, 1, props.Length])
                     {
                         range.Style.Font.Bold = true;
@@ -1253,41 +1211,31 @@ namespace WIPAT.BLL.Services
             {
                 using (var package = new ExcelPackage(new FileInfo(filePath)))
                 {
-                    // Add Worksheet
                     var ws = package.Workbook.Worksheets.Add(sheetName);
 
-                    // 1. Export Headers
                     for (int i = 0; i < grid.Columns.Count; i++)
                     {
                         var cell = ws.Cells[1, i + 1];
                         cell.Value = grid.Columns[i].HeaderText;
 
-                        // Style Header: Bold + Light Gray Background
                         cell.Style.Font.Bold = true;
                         cell.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
                         cell.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
                     }
 
-                    // 2. Export Data Rows
                     for (int i = 0; i < grid.Rows.Count; i++)
                     {
                         for (int j = 0; j < grid.Columns.Count; j++)
                         {
-                            // i+2 (Excel row starts at 1, header is 1)
-                            // j+1 (Excel col starts at 1)
                             var value = grid.Rows[i].Cells[j].Value;
                             ws.Cells[i + 2, j + 1].Value = value?.ToString();
                         }
                     }
 
-                    // 3. Auto-fit columns
                     ws.Cells.AutoFitColumns();
-
-                    // 4. Save to disk
                     package.Save();
                 }
 
-                // Success Response
                 response.Success = true;
                 response.Message = "File exported successfully.";
                 response.Data = filePath;
@@ -1295,7 +1243,6 @@ namespace WIPAT.BLL.Services
             }
             catch (Exception ex)
             {
-                // Error Response
                 response.Success = false;
                 response.Message = $"Export Failed: {ex.Message}";
                 response.Data = null;
@@ -1308,7 +1255,6 @@ namespace WIPAT.BLL.Services
         #endregion Export to excel
 
         #region helpers 
-        //helpers for mapping column values
         private Response<DataRow> MapColumnValues(string column, string cellValue, DataRow dr, int row)
         {
             var response = new Response<DataRow>();
@@ -1320,7 +1266,6 @@ namespace WIPAT.BLL.Services
 
                 if (column == AllColumnNames.CasePackQty)
                 {
-                    //if (!IsEmpty(cellValue) && !IsNumeric(cellValue))
                     if (!IsEmpty(cellValue))
                     {
                         var parseRes = TryParseIntegerColumn(column, cellValue, row, dr);
@@ -1364,7 +1309,6 @@ namespace WIPAT.BLL.Services
                     dr[column] = cellValue;
                 }
 
-                // If no exception occurs and all columns are mapped correctly, we set success to true
                 response.Success = true;
                 response.Message = "Column values mapped successfully.";
                 response.Data = dr;
@@ -1394,7 +1338,6 @@ namespace WIPAT.BLL.Services
                 }
                 else
                 {
-                    // Return a meaningful error response when parsing fails
                     response.Success = false;
                     response.Message = $"Invalid {column} value at row {row}. Could not parse '{cellValue}' as an integer.";
                     response.Data = null;
@@ -1403,7 +1346,6 @@ namespace WIPAT.BLL.Services
             }
             catch (Exception ex)
             {
-                // Log the exception or handle it as needed
                 response.Success = false;
                 response.Message = $"An unexpected error occurred while processing the {column} value at row {row}: {ex.Message}";
                 response.Data = null;
@@ -1411,7 +1353,6 @@ namespace WIPAT.BLL.Services
             }
         }
 
-        // 
         public string GetEnumValue(Enum value)
         {
             var field = value.GetType().GetField(value.ToString());
@@ -1421,5 +1362,4 @@ namespace WIPAT.BLL.Services
         #endregion helpers   
 
     }
-
 }

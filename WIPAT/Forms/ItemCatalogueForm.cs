@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL.Interfaces;
 using WIPAT.DAL.Interfaces;
-using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
 using WIPAT.Helpers;
@@ -57,9 +56,8 @@ namespace WIPAT
             txtSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) BtnSearch_Click(s, e); };
             dgvItems.ColumnHeaderMouseClick += DgvItems_ColumnHeaderMouseClick;
 
-            // Wire up the new global UITheme method to handle counts automatically
-            dgvItems.DataBindingComplete += (s, e) =>
-                UITheme.UpdateGridSummaryCounts(dgvItems, lblTotalItems, lblActiveItems, lblInactiveItems, lblInvalidItems);
+            // Hook the cell formatting so integers (0,1,2) display as words
+            dgvItems.CellFormatting += DgvItems_CellFormatting;
 
             UpdateUIState();
         }
@@ -84,6 +82,32 @@ namespace WIPAT
             UITheme.StyleButton(btnSearch, AppButtonStyle.Search);
         }
 
+        private void DgvItems_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex >= 0 && dgvItems.Columns[e.ColumnIndex].Name == "ItemStatus" && e.Value != null)
+            {
+                if (int.TryParse(e.Value.ToString(), out int statusVal))
+                {
+                    switch (statusVal)
+                    {
+                        case 0:
+                            e.Value = "Inactive";
+                            e.CellStyle.ForeColor = Color.DarkGray;
+                            break;
+                        case 1:
+                            e.Value = "Active";
+                            e.CellStyle.ForeColor = Color.Green;
+                            break;
+                        case 2:
+                            e.Value = "Invalid";
+                            e.CellStyle.ForeColor = Color.Red;
+                            break;
+                    }
+                    e.FormattingApplied = true;
+                }
+            }
+        }
+
         private void UpdateUIState()
         {
             switch (_currentState)
@@ -97,7 +121,6 @@ namespace WIPAT
                     btnCommitToDb.Visible = false;
                     pnlSearch.Visible = false;
 
-                    // Hide the new summary bar when there is no data
                     if (pnlStatusBar != null) pnlStatusBar.Visible = false;
 
                     lblTitle.Text = "Items Catalog Manager";
@@ -113,10 +136,8 @@ namespace WIPAT
                     pnlSearch.Visible = true;
                     btnCommitToDb.Visible = false;
 
-                    // Show the summary bar
                     if (pnlStatusBar != null) pnlStatusBar.Visible = true;
 
-                    // Simplified title! The bottom status bar handles the counts now.
                     lblTitle.Text = "System Catalog";
 
                     lblModeIndicator.BackColor = UITheme.Success_Color;
@@ -136,12 +157,10 @@ namespace WIPAT
                     btnExport.Visible = false;
                     pnlSearch.Visible = false;
 
-                    // Show the summary bar to count the preview items
                     if (pnlStatusBar != null) pnlStatusBar.Visible = true;
 
                     var actionText = _currentState == AppState.PreviewingExcelAdd ? "New Items" : "Updates";
 
-                    // Simplified title here as well
                     lblTitle.Text = $"Import Preview ({actionText})";
 
                     lblModeIndicator.BackColor = UITheme.WarningColor;
@@ -218,15 +237,24 @@ namespace WIPAT
                 x.Size,
                 x.PCPK,
                 x.CasePackQty,
-                x.isActive,
                 x.OpeningStock,
-                x.ItemStatus,
-
+                x.ItemStatus // Using Integer Enum
             }).ToList();
 
             dgvItems.DataSource = null;
             dgvItems.DataSource = displayData;
             UpdateSortArrows();
+
+            // Re-calculate the custom grid stats based on the enum values
+            int total = displayData.Count;
+            int active = displayData.Count(x => x.ItemStatus == 1);
+            int inactive = displayData.Count(x => x.ItemStatus == 0);
+            int invalid = displayData.Count(x => x.ItemStatus == 2);
+
+            lblTotalItems.Text = $"Total: {total}";
+            lblActiveItems.Text = $"Active: {active}";
+            lblInactiveItems.Text = $"Inactive: {inactive}";
+            lblInvalidItems.Text = $"Invalid: {invalid}";
         }
 
         private void DgvItems_ColumnHeaderMouseClick(object sender, DataGridViewCellMouseEventArgs e)

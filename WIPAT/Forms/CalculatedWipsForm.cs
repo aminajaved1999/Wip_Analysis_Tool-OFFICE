@@ -52,8 +52,11 @@ namespace WIPAT
             btnSearch.Click += BtnSearch_Click;
             txtSearch.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) BtnSearch_Click(s, e); };
 
-            dgvWipDetails.DataBindingComplete += (s, e) =>
-                UITheme.UpdateGridSummaryCounts(dgvWipDetails, lblTotalItems, lblActiveItems, lblInactiveItems, lblInvalidItems);
+            // Hook the cell formatting so integers (0,1,2) display as beautiful words
+            dgvWipDetails.CellFormatting += DataGridView_ItemStatus_CellFormatting;
+
+            //dgvWipDetails.DataBindingComplete += (s, e) =>
+                //UITheme.UpdateGridSummaryCounts(dgvWipDetails, lblTotalItems, lblActiveItems, lblInactiveItems, lblInvalidItems);
 
             UpdateUIState();
         }
@@ -81,6 +84,57 @@ namespace WIPAT
             UITheme.StyleButton(btnSearch, AppButtonStyle.Search);
 
             UITheme.StyleGrid(dgvWipDetails, isValid: true);
+        }
+
+        // Apply exactly the same colors as in ItemsCatalogueForm
+        private void DataGridView_ItemStatus_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            var dgv = sender as DataGridView;
+            if (dgv != null && e.ColumnIndex >= 0 && e.RowIndex >= 0 && e.Value != null && e.Value != DBNull.Value)
+            {
+                string colName = dgv.Columns[e.ColumnIndex].Name;
+
+                if (colName == "ItemStatus")
+                {
+                    string valStr = e.Value.ToString().Trim();
+
+                    if (int.TryParse(valStr, out int statusVal))
+                    {
+                        switch (statusVal)
+                        {
+                            case 0:
+                                e.Value = "Inactive";
+                                e.CellStyle.ForeColor = Color.DarkGray;
+                                break;
+                            case 1:
+                                e.Value = "Active";
+                                e.CellStyle.ForeColor = Color.Green;
+                                break;
+                            case 2:
+                                e.Value = "Invalid";
+                                e.CellStyle.ForeColor = Color.Red;
+                                break;
+                        }
+                        e.FormattingApplied = true;
+                    }
+                    else
+                    {
+                        // Fallback safely just in case it is already parsed as string
+                        if (valStr.Equals("Inactive", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = Color.DarkGray;
+                        }
+                        else if (valStr.Equals("Active", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Valid", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = Color.Green;
+                        }
+                        else if (valStr.Equals("Invalid", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Missing", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = Color.Red;
+                        }
+                    }
+                }
+            }
         }
 
         private void UpdateUIState()
@@ -169,25 +223,39 @@ namespace WIPAT
         {
             _currentDisplayList = data.ToList();
 
-            // Include the status properties so the grid creates columns for them
             var displayData = _currentDisplayList.Select(d => new {
                 d.CASIN,
                 WIP_Quantity = d.WipQuantity,
+                d.ItemStatus // Kept for cell formatting colorization
             }).ToList();
 
             dgvWipDetails.DataSource = null;
             dgvWipDetails.DataSource = displayData;
 
-            // Hide the status columns so they don't show up in the UI
-            if (dgvWipDetails.Columns.Contains("ItemStatus"))
+            // Update counts reliably based on actual WipDetail items
+            UpdateDisplayCounts();
+        }
+
+        private void UpdateDisplayCounts()
+        {
+            if (_currentDisplayList == null)
             {
-                dgvWipDetails.Columns["ItemStatus"].Visible = false;
+                lblTotalItems.Text = "Total Items: 0";
+                lblActiveItems.Text = "Active: 0";
+                lblInactiveItems.Text = "Deactivated: 0";
+                lblInvalidItems.Text = "Invalid: 0";
+                return;
             }
 
-            if (dgvWipDetails.Columns.Contains("IsActive"))
-            {
-                dgvWipDetails.Columns["IsActive"].Visible = false;
-            }
+            int total = _currentDisplayList.Count;
+            int active = _currentDisplayList.Count(w => w.ItemStatus == 1);
+            int inactive = _currentDisplayList.Count(w => w.ItemStatus == 0);
+            int invalid = _currentDisplayList.Count(w => w.ItemStatus == 2);
+
+            lblTotalItems.Text = $"Total Items: {total}";
+            lblActiveItems.Text = $"Active: {active}";
+            lblInactiveItems.Text = $"Deactivated: {inactive}";
+            lblInvalidItems.Text = $"Invalid: {invalid}";
         }
 
         private int GetMonthIndex(string monthName)
@@ -370,6 +438,29 @@ namespace WIPAT
 
         private async Task CommitUpdatesAsync()
         {
+            // 1. Validate all pending updates against their respective CasePack values immediately
+            var currentWipMap = _currentWipData.ToDictionary(w => w.CASIN, w => w.CasePack ?? 0, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var update in _pendingUpdates)
+            {
+                if (currentWipMap.TryGetValue(update.CASIN, out int casePack) && casePack > 0)
+                {
+                    int proposedQty = update.UserWipQty ?? 0;
+                    if (proposedQty % casePack != 0)
+                    {
+                        MessageBox.Show(
+                            $"Validation Error: The proposed WIP quantity ({proposedQty}) for CASIN {update.CASIN} is not a multiple of its defined Case Pack ({casePack}). The import process has been aborted.",
+                            "Case Pack Validation Failed",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error);
+
+                        SetStatus("Validation failed: Case Pack mismatch.", StatusType.Error);
+                        return; // Abort immediately, do not proceed to review or commit
+                    }
+                }
+            }
+
+            // 2. Proceed with confirmation and database commit if validation passes
             var confirm = MessageBox.Show(
                 $"Proceed to review {_pendingUpdates.Count} updates for {_selectedMonth} {_selectedYear}?",
                 "Review Updates", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
@@ -405,8 +496,8 @@ namespace WIPAT
             catch (Exception ex)
             {
                 string errorMsg = $"An unexpected error occurred while preparing updates for review: {ex.Message}"
-                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                    + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                    + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
 
                 SetStatus("Unexpected error while preparing updates.", StatusType.Error);
                 MessageBox.Show(errorMsg, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -469,7 +560,7 @@ namespace WIPAT
             }
             statusStrip.Refresh();
         }
-     
+
         #endregion
 
         #region Wip Approval Form 
@@ -479,6 +570,7 @@ namespace WIPAT
             {
                 var table = new DataTable();
                 table.Columns.Add("CASIN", typeof(string));
+                table.Columns.Add("ItemStatus", typeof(string)); // Make ItemStatus visible here
                 table.Columns.Add("CurrentWip", typeof(int));
                 table.Columns.Add("ProposedWip", typeof(int));
                 table.Columns.Add("Delta", typeof(int));
@@ -493,7 +585,7 @@ namespace WIPAT
                     if (current == proposed) continue;
 
                     int delta = proposed - current;
-                    table.Rows.Add(d.CASIN, current, proposed, delta);
+                    table.Rows.Add(d.CASIN, d.ItemStatus, current, proposed, delta);
                     hasChangesToApprove = true;
                 }
 
@@ -520,6 +612,10 @@ namespace WIPAT
                     MultiSelect = true,
                     DataSource = table
                 };
+
+                // Colorize the approval form too!
+                dgv.CellFormatting += DataGridView_ItemStatus_CellFormatting;
+
                 UITheme.StyleGrid(dgv);
 
                 var panel = new FlowLayoutPanel
@@ -578,6 +674,21 @@ namespace WIPAT
                             int proposed = r.Field<int>("ProposedWip");
                             if (current == proposed) continue;
 
+                            // Validate against CasePack
+                            var detailItem = details.FirstOrDefault(d => d.CASIN.Equals(casin, StringComparison.OrdinalIgnoreCase));
+                            if (detailItem != null && detailItem.CasePack.HasValue && detailItem.CasePack.Value > 0)
+                            {
+                                if (proposed % detailItem.CasePack.Value != 0)
+                                {
+                                    MessageBox.Show(
+                                        $"Validation Failed: The proposed WIP quantity ({proposed}) for CASIN {casin} is not a multiple of its Case Pack ({detailItem.CasePack.Value}). No records will be updated.",
+                                        "Invalid Quantity - Case Pack Mismatch",
+                                        MessageBoxButtons.OK,
+                                        MessageBoxIcon.Error);
+                                    return; // Abort entire batch immediately
+                                }
+                            }
+
                             updates.Add(new WipDetail
                             {
                                 CASIN = casin,
@@ -604,7 +715,7 @@ namespace WIPAT
                         if (resp.Success)
                         {
                             MessageBox.Show("WIP changes approved and forecast synchronized successfully!",
-                                            "Approval Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                                "Approval Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                             form.DialogResult = DialogResult.OK;
                             form.Close();
@@ -617,10 +728,7 @@ namespace WIPAT
                     }
                     catch (Exception ex)
                     {
-                        string errorMsg = $"An unexpected error occurred while saving the approvals: {ex.Message}"
-                                          + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                                          + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
-
+                        string errorMsg = $"An unexpected error occurred while saving the approvals: {ex.Message}";
                         MessageBox.Show(errorMsg, "Critical Failure", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }

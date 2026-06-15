@@ -2,11 +2,14 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Configuration;
+using System.Configuration; 
 using System.Data;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL.Interfaces;
@@ -15,6 +18,7 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
+using static System.Data.Entity.Infrastructure.Design.Executor;
 
 namespace WIPAT.BLL.Services
 {
@@ -31,34 +35,37 @@ namespace WIPAT.BLL.Services
         }
 
         #region  validate excel file
-        public async Task<Response<bool>> ValidateExcelFile(string filePath, string fileType, string requiredWorkSheetName, List<string> requiredExcelColumns)
+
+        public async Task<Response<bool>> ValidateExcelFile(string filePath, string fileType, string requiredWorkSheetName, List<string> requiredExcelColumns,
+            string requiredMonth = null,
+            string requiredYear = null
+            )
         {
             var response = new Response<bool>();
             var allowedExtensions = new[] { ".xls", ".xlsx" };
             List<string> casinList = new List<string>();
 
+            // Local helper function to quickly return errors
+            Response<bool> CreateErrorResponse(string errorMessage)
+            {
+                return new Response<bool> { Success = false, Message = errorMessage };
+            }
 
             #region Input Validation
             if (string.IsNullOrWhiteSpace(filePath))
             {
-                response.Success = false;
-                response.Message = "File path is empty.";
-                return response;
+                return CreateErrorResponse("File path is empty.");
             }
 
             if (!File.Exists(filePath))
             {
-                response.Success = false;
-                response.Message = "The selected file does not exist.";
-                return response;
+                return CreateErrorResponse("The selected file does not exist.");
             }
 
             var fileExtension = Path.GetExtension(filePath).ToLower();
             if (!allowedExtensions.Contains(fileExtension))
             {
-                response.Success = false;
-                response.Message = "Invalid file type. Please select a valid Excel file (.xls or .xlsx).";
-                return response;
+                return CreateErrorResponse("Invalid file type. Please select a valid Excel file (.xls or .xlsx).");
             }
             #endregion
 
@@ -71,18 +78,14 @@ namespace WIPAT.BLL.Services
                     #region File Processing & Worksheet Check
                     if (package.Workbook.Worksheets.Count == 0)
                     {
-                        response.Success = false;
-                        response.Message = "The workbook does not contain any worksheets.";
-                        return response;
+                        return CreateErrorResponse("The workbook does not contain any worksheets.");
                     }
 
                     var worksheet = package.Workbook.Worksheets[requiredWorkSheetName];
 
                     if (worksheet == null || worksheet.Dimension == null)
                     {
-                        response.Success = false;
-                        response.Message = $"Worksheet '{requiredWorkSheetName}' is missing or empty.";
-                        return response;
+                        return CreateErrorResponse($"Worksheet '{requiredWorkSheetName}' is missing or empty.");
                     }
                     #endregion
 
@@ -105,9 +108,7 @@ namespace WIPAT.BLL.Services
 
                     if (missingColumns.Any())
                     {
-                        response.Success = false;
-                        response.Message = $"Missing required columns: {string.Join(", ", missingColumns)}.";
-                        return response;
+                        return CreateErrorResponse($"Missing required columns: {string.Join(", ", missingColumns)}.");
                     }
                     #endregion
 
@@ -132,7 +133,7 @@ namespace WIPAT.BLL.Services
                                 return CreateErrorResponse($"Column '{colName}' at row {row} cannot be empty.");
                             }
 
-                            if (colName == AllColumnNames.CAsin && !string.IsNullOrWhiteSpace(cellValue))
+                            if (colName == AllColumnNames.CAsin || colName == "CASIN" && !string.IsNullOrWhiteSpace(cellValue))
                             {
                                 casinList.Add(cellValue);
                             }
@@ -176,8 +177,7 @@ namespace WIPAT.BLL.Services
                     }
                     #endregion
 
-
-                    #region Items in File that are MISSING in DB 
+                    #region Items in File that are MISSING or DEACTIVATED in DB 
                     if (fileType == FileType.Forecast.ToString() || fileType == FileType.Order.ToString() || fileType == FileType.Stock.ToString())
                     {
                         var distinctCASINs = casinList
@@ -187,79 +187,199 @@ namespace WIPAT.BLL.Services
                             .ToList();
 
                         var missing = new List<string>();
+                        var deactivated = new List<string>();
 
                         foreach (var c in distinctCASINs)
                         {
-                            if (!_itemsRepository.IsCAsinExistInCatalogue(c))
+                            // Call the combined repository method
+                            bool? status = await _itemsRepository.CheckCAsinStatus(c);
 
+                            if (status == null)
                             {
-
+                                // Item doesn't exist at all
                                 missing.Add(c);
                             }
+                            else if (status == false)
+                            {
+                                // Item exists but isActive is false
+                                deactivated.Add(c);
+                            }
                         }
 
-                        if (missing.Any())
+                        // Assign lists to response object immediately so they are available in all return paths
+                        response.MissingItems = missing;
+                        response.DeactivatedItems = deactivated;
+
+                        if (missing.Any() || deactivated.Any())
                         {
-                            string allMissingItems = string.Join(", ", missing);
+                            // ---> GENERATE THE DATATABLE <---
+                            DataTable problemTable = CreateProblemItemsDataTable(missing, deactivated, filePath, requiredMonth, requiredYear);
 
-                            if (missing.Count > 10)
+                            // Attach it to your response object (Uncomment if you added this property)
+                            response.ProblemItemsTable = problemTable;
+
+                            StringBuilder dialogText = new StringBuilder();
+                            dialogText.AppendLine("The following items need your attention:\n");
+
+                            if (missing.Any())
                             {
-                                string dialogMessage = $"The following {missing.Count} CASINs are missing:\n\n" +
-                                                           allMissingItems +
-                                                           "\n\n(Tip: Press Ctrl+C to copy this list)";
-
-                                // Show the box
-                                MessageBox.Show(dialogMessage, "Missing Items - Action Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                                response.Message = $"{missing.Count} items missing. Please check the pop-up list.";
+                                dialogText.AppendLine($"Missing in Catalogue ({missing.Count}):");
+                                dialogText.AppendLine(string.Join(", ", missing));
+                                dialogText.AppendLine();
                             }
+
+                            if (deactivated.Any())
+                            {
+                                dialogText.AppendLine($"Deactivated in Catalogue ({deactivated.Count}):");
+                                dialogText.AppendLine(string.Join(", ", deactivated));
+                                dialogText.AppendLine();
+                            }
+
+                            int totalProblemItems = missing.Count + deactivated.Count;
+                            if (totalProblemItems > 10)
+                            {
+                                dialogText.AppendLine("(Tip: Press Ctrl+C to copy this list)\n");
+                            }
+
+                            // SCENARIO 1: MISSING ITEMS EXIST. Show MessageBox with ONLY an 'OK' button.
+                            if (missing.Any())
+                            {
+                                dialogText.AppendLine("Process cancelled. You must add the missing items to the catalogue first.");
+
+                                MessageBox.Show(dialogText.ToString(), "Problem Items - Action Required", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                                string message = $"Process cancelled. Found {missing.Count} missing item{(missing.Count > 1 ? "s" : "")}";
+                                if (deactivated.Any())
+                                {
+                                    message += $" and {deactivated.Count} deactivated item{(deactivated.Count > 1 ? "s" : "")}";
+                                }
+                                message += ". Please update the catalogue first.";
+
+                                var errorResponse = CreateErrorResponse(message);
+                                errorResponse.MissingItems = missing;
+                                errorResponse.DeactivatedItems = deactivated;
+                                errorResponse.ProblemItemsTable = problemTable; // Attach here too
+                                return errorResponse;
+                            }
+                            // SCENARIO 2: ONLY DEACTIVATED ITEMS.
                             else
                             {
-                                response.Message = $"Missing CASINs: {allMissingItems}";
+                                // ONLY allow bypass if the file type is Forecast
+                                if (fileType == FileType.Forecast.ToString())
+                                {
+                                    dialogText.AppendLine("Do you want to create the WIP and ignore calculating WIP for these CASINs?\n");
+                                    dialogText.AppendLine("• Click 'Yes' to ignore them and continue.");
+                                    dialogText.AppendLine("• Click 'No' to cancel so you can activate them in the catalogue.");
+
+                                    DialogResult result = MessageBox.Show(dialogText.ToString(), "Problem Items - Action Required", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+
+                                    if (result == DialogResult.No)
+                                    {
+                                        var errorResponse = CreateErrorResponse($"Process cancelled. Found {deactivated.Count} deactivated items. Please update the catalogue first.");
+                                        errorResponse.MissingItems = missing;
+                                        errorResponse.DeactivatedItems = deactivated;
+                                        errorResponse.ProblemItemsTable = problemTable; // Attach here too
+                                        return errorResponse;
+                                    }
+                                    else
+                                    {
+                                        // User clicked 'Yes'. Update the success message to reflect ignored items.
+                                        response.Message = $"File validated successfully (Ignored {deactivated.Count} problem CASINs).";
+                                        response.IsContinueWithInactiveItems = true;
+                                    }
+                                }
+                                // If NOT Forecast, cancel the process with an error
+                                else
+                                {
+                                    string message = $"Process cancelled. Found {missing.Count} missing item{(missing.Count > 1 ? "s" : "")}";
+                                    if (deactivated.Any())
+                                    {
+                                        message += $" and {deactivated.Count} deactivated item{(deactivated.Count > 1 ? "s" : "")}";
+                                    }
+                                    message += ". Please update the catalogue first.";
+
+
+                                    dialogText.AppendLine(message);
+
+                                    MessageBox.Show(dialogText.ToString(), "Problem Items - Action Required", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                                    var errorResponse = CreateErrorResponse($"{message}");
+                                    errorResponse.MissingItems = missing;
+                                    errorResponse.DeactivatedItems = deactivated;
+                                    errorResponse.ProblemItemsTable = problemTable; // Attach here too
+                                    return errorResponse;
+                                }
                             }
-
-
-                            response.Success = false;
-                            //response.Message = "The following CASIN values do not exist in the catalogue:\r\n\r\n" +
-                            //                   string.Join("\r\n", missing) +
-                            //                   "\r\n\r\nPlease add these items in the catalogue first to continue.";
-                            
-
-                            return response;
                         }
                     }
-                    #endregion Items in File that are MISSING in DB 
+                    #endregion Items in File that are MISSING or DEACTIVATED in DB 
 
+                    // If we get here without returning, the file passed validation or user ignored warnings
                     response.Success = true;
-                    response.Message = "File validated successfully.";
+                    if (string.IsNullOrEmpty(response.Message))
+                    {
+                        response.Message = "File validated successfully.";
+                    }
                 }
             }
             catch (Exception ex)
             {
-                response.Success = false;
-                response.Message = $"Error validating file: {ex.Message}";
+                return CreateErrorResponse($"Error validating file: {ex.Message}");
             }
 
             return response;
         }
-
-        // Helper to keep code clean
-        private Response<bool> CreateErrorResponse(string message)
+        // Helper method to generate the DataTable
+        private DataTable CreateProblemItemsDataTable(List<string> missingItems, List<string> deactivatedItems, string filePath, string month, string year)
         {
-            return new Response<bool>
+            DataTable dt = new DataTable("ProblemItems");
+
+            // Define columns
+            dt.Columns.Add("Casin", typeof(string));
+            dt.Columns.Add("Month", typeof(string));
+            dt.Columns.Add("Year", typeof(string));
+            dt.Columns.Add("FileName", typeof(string));
+            dt.Columns.Add("Reason", typeof(string));
+
+            // Extract just the file name
+            string fileName = Path.GetFileName(filePath);
+
+            // Add Deactivated items
+            if (deactivatedItems != null)
             {
-                Success = false,
-                Message = message
-            };
+                foreach (var casin in deactivatedItems)
+                {
+                    dt.Rows.Add(casin, month, year, fileName, "Deactivated");
+                }
+            }
+
+            // Add Missing items
+            if (missingItems != null)
+            {
+                foreach (var casin in missingItems)
+                {
+                    dt.Rows.Add(casin, month, year, fileName, "Missing");
+                }
+            }
+
+            return dt;
         }
 
         public async Task<Response<string>> ValidateItemCatalogueExcelFile(string filePath)
         {
             var response = new Response<string>();
             var requiredExcelColumns = AllColumnNames.ExcelColumnNames.ToList();
-            string requiredWorkSheetName = "ItemCatalogues";
+            string requiredWorkSheetName = ConfigurationManager.AppSettings["ItemCatalogueWorksheetName"];
             var allowedExtensions = new[] { ".xls", ".xlsx" };
 
             #region Input Validation
+            if (string.IsNullOrWhiteSpace(requiredWorkSheetName))
+            {
+                response.Success = false;
+                response.Message = "The worksheet name configuration ('ItemCatalogueWorksheetName') is missing or empty in the App.config file.";
+                return response;
+            }
+
             if (string.IsNullOrWhiteSpace(filePath))
             {
                 response.Success = false;
@@ -285,13 +405,10 @@ namespace WIPAT.BLL.Services
 
             try
             {
-                // Open the Excel file using EPPlus asynchronously
                 var fileInfo = new FileInfo(filePath);
 
                 using (var package = await Task.Run(() => new ExcelPackage(fileInfo)))
                 {
-                    #region File Processing (Opening and Reading Excel File)
-
                     if (package.Workbook.Worksheets.Count == 0)
                     {
                         response.Success = false;
@@ -301,7 +418,6 @@ namespace WIPAT.BLL.Services
 
                     var worksheet = package.Workbook.Worksheets[requiredWorkSheetName];
 
-                    // Check if worksheet exists
                     if (worksheet == null || worksheet.Dimension == null)
                     {
                         response.Success = false;
@@ -309,17 +425,26 @@ namespace WIPAT.BLL.Services
                         return response;
                     }
 
-                    #endregion
+                    #region Header Validation (Space-Insensitive Fix)
+                    var cleanHeadersInExcel = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                                                        .Select(col => worksheet.Cells[1, col].Text.Replace(" ", "").Trim().ToLower())
+                                                        .Where(text => !string.IsNullOrEmpty(text))
+                                                        .ToList();
 
-                    #region Header Validation
-                    // Get the header row (first row in the worksheet)
-                    var headerRow = Enumerable.Range(1, worksheet.Dimension.End.Column)
-                                              .Select(col => worksheet.Cells[1, col].Text.Trim())
-                                              .ToList();
+                    var missingColumns = requiredExcelColumns
+                        .Where(col => col != AllColumnNames.IsActive) // Keep IsActive optional
+                        .Where(col => !cleanHeadersInExcel.Contains(col.Replace(" ", "").Trim().ToLower()))
+                        .ToList();
 
-                    // Check which columns match or are missing
-                    var missingColumns = requiredExcelColumns.Except(headerRow).ToList();
-                    var extraColumns = headerRow.Except(requiredExcelColumns).ToList();
+                    var cleanRequiredKeys = requiredExcelColumns.Select(col => col.Replace(" ", "").Trim().ToLower()).ToList();
+                    var rawHeadersRow = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                                                  .Select(col => worksheet.Cells[1, col].Text.Trim())
+                                                  .ToList();
+
+                    var extraColumns = rawHeadersRow
+                        .Where(header => !string.IsNullOrEmpty(header) &&
+                                         !cleanRequiredKeys.Contains(header.Replace(" ", "").Trim().ToLower()))
+                        .ToList();
 
                     if (missingColumns.Any() || extraColumns.Any())
                     {
@@ -328,36 +453,87 @@ namespace WIPAT.BLL.Services
 
                         response.Success = false;
                         response.Message = $"{missingMessage} {extraMessage}".Trim();
+                        return response;
                     }
-
                     #endregion
 
                     #region Data Validation
-                    // Validate column data types
                     bool dataTypesValid = true;
 
-                    for (int row = 2; row <= worksheet.Dimension.End.Row; row++) // Start from row 2 to skip the header
+                    var actualHeadersInFile = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                                                        .Where(col => !string.IsNullOrWhiteSpace(worksheet.Cells[1, col].Text))
+                                                        .ToDictionary(
+                                                            col => worksheet.Cells[1, col].Text.Replace(" ", "").Trim().ToLower(),
+                                                            col => col
+                                                        );
+
+                    for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
                     {
                         foreach (var column in AllColumnNames.ExcelColumnIndexes)
                         {
                             var columnName = column.Key;
-                            var columnIndex = column.Value;
-                            var cellValue = worksheet.Cells[row, columnIndex].Text;
+                            string strippedColumnKey = columnName.Replace(" ", "").Trim().ToLower();
 
-                            #region validation
                             bool IsNumeric(string s) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
                             bool IsEmpty(string s) => string.IsNullOrWhiteSpace(s);
 
-                            if (columnName == AllColumnNames.CasePackQty) // optional numeric
+                            // --- STRICTOR ISACTIVE IN-LOOP VALIDATION ---
+                            if (columnName == AllColumnNames.IsActive)
                             {
-                                if (!IsEmpty(cellValue) && !IsNumeric(cellValue))
+                                if (!actualHeadersInFile.ContainsKey(strippedColumnKey))
+                                {
+                                    continue; // Optional column is completely missing, skip safely
+                                }
+
+                                int fileColumnIndex = actualHeadersInFile[strippedColumnKey];
+
+                                // Get raw string text representation
+                                var cellText = worksheet.Cells[row, fileColumnIndex].Text.Trim();
+                                var cellValueStr = worksheet.Cells[row, fileColumnIndex].Value?.ToString()?.Trim() ?? "";
+
+                                // Check empty states
+                                if (string.IsNullOrWhiteSpace(cellText) && string.IsNullOrWhiteSpace(cellValueStr))
                                 {
                                     response.Success = false;
-                                    response.Message = $"Column '{columnName}' at row {row} must be numeric if provided. Found: '{cellValue}'.";
+                                    response.Message = $"Upload Failed: The column heading '{AllColumnNames.IsActive}' is present, therefore row {row} cannot be left empty. Please provide either TRUE or FALSE.";
                                     dataTypesValid = false;
+                                    break;
                                 }
+
+                                // Normalize checks to catch TRUE, FALSE, 1, 0, or underlying boolean evaluation types safely
+                                string normText = cellText.ToUpper();
+                                string normVal = cellValueStr.ToUpper();
+
+                                bool isValidTrue = (normText == "TRUE" || normText == "1" || normVal == "TRUE" || normVal == "1");
+                                bool isValidFalse = (normText == "FALSE" || normText == "0" || normVal == "FALSE" || normVal == "0");
+
+                                if (!isValidTrue && !isValidFalse)
+                                {
+                                    response.Success = false;
+                                    response.Message = $"Upload Failed: Invalid value '{cellText}' at row {row} in the '{AllColumnNames.IsActive}' column. Value must be written explicitly as either TRUE or FALSE.";
+                                    dataTypesValid = false;
+                                    break;
+                                }
+
+                                continue;
                             }
-                            else if (columnName == AllColumnNames.PCPK || columnName == AllColumnNames.OpeningStock) // required numeric
+
+                            // --- Existing Data Type Validations ---
+                            if (!actualHeadersInFile.ContainsKey(strippedColumnKey)) continue;
+                            int dynamicIndex = actualHeadersInFile[strippedColumnKey];
+                            var cellValue = worksheet.Cells[row, dynamicIndex].Text;
+
+                            //if (columnName == AllColumnNames.CasePackQty)
+                            //{
+                            //    if (!IsEmpty(cellValue) && !IsNumeric(cellValue))
+                            //    {
+                            //        response.Success = false;
+                            //        response.Message = $"Column '{columnName}' at row {row} must be numeric if provided. Found: '{cellValue}'.";
+                            //        dataTypesValid = false;
+                            //    }
+                            //}
+                            //else 
+                            if (columnName == AllColumnNames.PCPK || columnName == AllColumnNames.OpeningStock || columnName == AllColumnNames.CasePackQty)
                             {
                                 if (IsEmpty(cellValue))
                                 {
@@ -372,7 +548,7 @@ namespace WIPAT.BLL.Services
                                     dataTypesValid = false;
                                 }
                             }
-                            else if (columnName == AllColumnNames.CAsin || columnName == AllColumnNames.Model || columnName == AllColumnNames.Description || columnName == AllColumnNames.ColorName || columnName == AllColumnNames.Size) // required text
+                            else if (columnName == AllColumnNames.CAsin || columnName == AllColumnNames.Model || columnName == AllColumnNames.Description || columnName == AllColumnNames.ColorName || columnName == AllColumnNames.Size)
                             {
                                 if (IsEmpty(cellValue))
                                 {
@@ -387,7 +563,15 @@ namespace WIPAT.BLL.Services
                                     dataTypesValid = false;
                                 }
                             }
-                            #endregion validation
+                            else if (columnName == AllColumnNames.Notes)
+                            {
+                                if (!IsEmpty(cellValue) && IsNumeric(cellValue))
+                                {
+                                    response.Success = false;
+                                    response.Message = $"Column '{columnName}' at row {row} must be text if provided, but a numeric value was found: '{cellValue}'.";
+                                    dataTypesValid = false;
+                                }
+                            }
                         }
 
                         if (!dataTypesValid)
@@ -395,30 +579,18 @@ namespace WIPAT.BLL.Services
                     }
                     #endregion
 
-                    #region Final Response
                     if (dataTypesValid)
                     {
                         response.Success = true;
                         response.Message = "Columns match the required ones, and the data types are correct.";
                         response.Data = requiredWorkSheetName;
                     }
-                    #endregion
                 }
-            }
-            catch (FileNotFoundException)
-            {
-                response.Success = false;
-                response.Message = "The file was not found.";
-            }
-            catch (UnauthorizedAccessException)
-            {
-                response.Success = false;
-                response.Message = "You do not have permission to access the file.";
             }
             catch (Exception ex)
             {
                 response.Success = false;
-                response.Message = $"Cannot open file. It may be in use or corrupted. Error: {ex.Message}";
+                response.Message = $"Cannot open file or process data structures. Error: {ex.Message}";
             }
 
             return response;
@@ -534,7 +706,7 @@ namespace WIPAT.BLL.Services
             }
         }
 
-        public async Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath)
+        public async Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath, bool isUpdate = false)
         {
             var response = new Response<List<DataTable>>();
             try
@@ -551,7 +723,8 @@ namespace WIPAT.BLL.Services
 
                 string workSheetName = validationResponse.Data;
                 // Get Item Catalogues DataTable
-                Response<DataTable> resItemCatalogues = await GetItemCataloguesDataTableFromExcel(filePath, workSheetName);
+                //Response<DataTable> resItemCatalogues = await GetItemCataloguesDataTableFromExcel(filePath, workSheetName);
+                Response<DataTable> resItemCatalogues = await GetItemCataloguesDataTableFromExcel(filePath, workSheetName, isUpdate);
                 if (resItemCatalogues.Success == false)
                 {
                     response.Success = false;
@@ -560,7 +733,8 @@ namespace WIPAT.BLL.Services
                 }
 
                 // Get Stock DataTable
-                Response<DataTable> resInitialStock = await GetStockDataTableFromExcel(filePath, workSheetName);
+                //Response<DataTable> resInitialStock = await GetStockDataTableFromExcel(filePath, workSheetName);
+                Response<DataTable> resInitialStock = await GetStockDataTableFromExcel(filePath, workSheetName, isUpdate);
                 if (resInitialStock.Success == false)
                 {
                     response.Success = false;
@@ -689,31 +863,40 @@ namespace WIPAT.BLL.Services
         #endregion Read Excel
 
         #region Get Datatable
-        //items catalogue 
-        public async Task<Response<DataTable>> GetItemCataloguesDataTableFromExcel(string filePath, string requiredWorkSheetName)
+        public async Task<Response<DataTable>> GetItemCataloguesDataTableFromExcel(string filePath, string requiredWorkSheetName, bool isUpdate = false)
         {
             var response = new Response<DataTable>();
             try
             {
                 List<string> requiredCatalogueTableColumns = AllColumnNames.CatalogueTableColumns.ToList();
 
-                #region add columns to DataTable
-                DataTable dt = new DataTable();
+                // 1. Swap Creation columns for Update columns if in Update Mode
+                if (isUpdate)
+                {
+                    requiredCatalogueTableColumns.Remove(AllColumnNames.CreatedAt);
+                    requiredCatalogueTableColumns.Remove(AllColumnNames.CreatedById);
 
-                // Loop through the column names and add columns to the DataTable with the correct types
+                    if (!requiredCatalogueTableColumns.Contains(AllColumnNames.UpdatedAt))
+                        requiredCatalogueTableColumns.Add(AllColumnNames.UpdatedAt);
+
+                    if (!requiredCatalogueTableColumns.Contains(AllColumnNames.UpdatedById))
+                        requiredCatalogueTableColumns.Add(AllColumnNames.UpdatedById);
+                }
+
+                #region 2. Add Columns to DataTable
+                DataTable dt = new DataTable();
                 foreach (var columnName in requiredCatalogueTableColumns)
                 {
+                    // Now fully handled by your updated AllColumnNames class!
                     Type columnType = AllColumnNames.GetColumnType(columnName);
                     dt.Columns.Add(columnName, columnType);
                 }
-                #endregion add columns to DataTable
+                #endregion
 
-                // Open the Excel file using EPPlus asynchronously
                 var fileInfo = new FileInfo(filePath);
 
                 using (var package = await Task.Run(() => new ExcelPackage(fileInfo)))
                 {
-
                     if (package.Workbook.Worksheets.Count == 0)
                     {
                         response.Success = false;
@@ -723,55 +906,110 @@ namespace WIPAT.BLL.Services
 
                     var worksheet = package.Workbook.Worksheets[requiredWorkSheetName];
 
-
-                    // Ensure worksheet is not disposed
                     if (worksheet == null || worksheet.Dimension == null)
                     {
                         response.Success = false;
-                        response.Message = "Worksheet is not valid or has been disposed.";
-                        response.Data = null;
+                        response.Message = "Worksheet is not valid, disposed, or entirely empty.";
                         return response;
                     }
 
                     int rowCount = worksheet.Dimension.Rows;
+                    int colCount = worksheet.Dimension.Columns;
 
-                    // Assumes first row is header → start from row 2
+                    #region 3. Dynamically Map Column Positions (Space-Proof)
+                    Dictionary<string, int> actualColumnIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+                    for (int col = 1; col <= colCount; col++)
+                    {
+                        string headerValue = worksheet.Cells[1, col].Value?.ToString();
+                        if (!string.IsNullOrWhiteSpace(headerValue))
+                        {
+                            string strippedHeader = headerValue.Replace(" ", "").Trim();
+                            actualColumnIndexes[strippedHeader] = col;
+                        }
+                    }
+                    #endregion
+
+                    #region 4. Validate Required Columns Exist
+                    foreach (var requiredCol in requiredCatalogueTableColumns)
+                    {
+                        if (requiredCol == AllColumnNames.CreatedAt || requiredCol == AllColumnNames.CreatedById ||
+                            requiredCol == AllColumnNames.UpdatedAt || requiredCol == AllColumnNames.UpdatedById)
+                            continue;
+
+                        if (requiredCol == AllColumnNames.IsActive)
+                            continue;
+
+                        string searchKey = requiredCol.Replace(" ", "").Trim();
+
+                        if (!actualColumnIndexes.ContainsKey(searchKey))
+                        {
+                            response.Success = false;
+                            response.Message = $"Upload Failed: Missing required column '{requiredCol}'. Please ensure it exists in the header row.";
+                            return response;
+                        }
+                    }
+                    #endregion
+
+                    #region 5. Read and Dynamically Convert Data
                     for (int row = 2; row <= rowCount; row++)
                     {
                         DataRow dr = dt.NewRow();
 
-                        // Iterate through required columns and map values dynamically using columnIndexMap
                         foreach (var column in requiredCatalogueTableColumns)
                         {
-
-                            if (column == AllColumnNames.CreatedAt)
+                            if (column == AllColumnNames.CreatedAt || column == AllColumnNames.UpdatedAt)
                             {
                                 dr[column] = DateTime.Now;
                             }
-                            else if (column == AllColumnNames.CreatedById)
+                            else if (column == AllColumnNames.CreatedById || column == AllColumnNames.UpdatedById)
                             {
                                 dr[column] = _session.LoggedInUser.Id;
                             }
                             else
                             {
-                                string cellValue = worksheet.Cells[row, AllColumnNames.ExcelColumnIndexes[column]].Text;
+                                string searchKey = column.Replace(" ", "").Trim();
 
-                                //map values
-                                var drRes = MapColumnValues(column, cellValue, dr, row);
-                                if (!drRes.Success)
+                                if (column == AllColumnNames.IsActive && !actualColumnIndexes.ContainsKey(searchKey))
                                 {
-                                    response.Success = drRes.Success;
-                                    response.Message = drRes.Message;
-                                    return response;
+                                    dr[column] = DBNull.Value;
+                                    continue;
                                 }
 
-                                dr = drRes.Data;
-                            }
+                                int dynamicColIndex = actualColumnIndexes[searchKey];
+                                string cellValue = worksheet.Cells[row, dynamicColIndex].Value?.ToString()?.Trim();
 
+                                try
+                                {
+                                    if (string.IsNullOrWhiteSpace(cellValue))
+                                    {
+                                        dr[column] = DBNull.Value;
+                                    }
+                                    else
+                                    {
+                                        Type targetType = dt.Columns[column].DataType;
+                                        Type underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+                                        dr[column] = Convert.ChangeType(cellValue, underlyingType);
+                                    }
+                                }
+                                catch (FormatException)
+                                {
+                                    response.Success = false;
+                                    response.Message = $"Upload Failed: Row {row} contains invalid data in the '{column}' column. Expected a valid {dt.Columns[column].DataType.Name}.";
+                                    return response;
+                                }
+                                catch (Exception ex)
+                                {
+                                    response.Success = false;
+                                    response.Message = $"Upload Failed: Error processing Row {row}, Column '{column}'. Details: {ex.Message}";
+                                    return response;
+                                }
+                            }
                         }
 
                         dt.Rows.Add(dr);
                     }
+                    #endregion
 
                     response.Success = true;
                     response.Message = "Items Catalogue Data read successfully.";
@@ -786,34 +1024,44 @@ namespace WIPAT.BLL.Services
                 response.Data = null;
                 return response;
             }
-
         }
 
         //stock
-        public async Task<Response<DataTable>> GetStockDataTableFromExcel(string filePath, string requiredWorkSheetName)
+        public async Task<Response<DataTable>> GetStockDataTableFromExcel(string filePath, string requiredWorkSheetName, bool isUpdate = false)
         {
             var response = new Response<DataTable>();
             try
             {
                 List<string> requiredStockTableColumns = AllColumnNames.StockTableColumns.ToList();
 
-                #region add columns to DataTable
+                // 1. Swap Creation columns for Update columns if in Update Mode
+                if (isUpdate)
+                {
+                    requiredStockTableColumns.Remove(AllColumnNames.CreatedAt);
+                    requiredStockTableColumns.Remove(AllColumnNames.CreatedById);
+
+                    if (!requiredStockTableColumns.Contains(AllColumnNames.UpdatedAt))
+                        requiredStockTableColumns.Add(AllColumnNames.UpdatedAt);
+
+                    if (!requiredStockTableColumns.Contains(AllColumnNames.UpdatedById))
+                        requiredStockTableColumns.Add(AllColumnNames.UpdatedById);
+                }
+
+                #region 2. Add columns to DataTable
                 DataTable dt = new DataTable();
 
-                // Loop through the column names and add columns to the DataTable with the correct types
                 foreach (var columnName in requiredStockTableColumns)
                 {
+                    // Handled dynamically by the updated AllColumnNames mapping
                     Type columnType = AllColumnNames.GetColumnType(columnName);
                     dt.Columns.Add(columnName, columnType);
                 }
-                #endregion add columns to DataTable
+                #endregion
 
-                // Open the Excel file using EPPlus asynchronously
                 var fileInfo = new FileInfo(filePath);
 
                 using (var package = await Task.Run(() => new ExcelPackage(fileInfo)))
                 {
-
                     if (package.Workbook.Worksheets.Count == 0)
                     {
                         response.Success = false;
@@ -823,8 +1071,6 @@ namespace WIPAT.BLL.Services
 
                     var worksheet = package.Workbook.Worksheets[requiredWorkSheetName];
 
-
-                    // Ensure worksheet is not disposed
                     if (worksheet == null || worksheet.Dimension == null)
                     {
                         response.Success = false;
@@ -835,19 +1081,17 @@ namespace WIPAT.BLL.Services
 
                     int rowCount = worksheet.Dimension.Rows;
 
-                    // Assumes first row is header → start from row 2
                     for (int row = 2; row <= rowCount; row++)
                     {
                         DataRow dr = dt.NewRow();
 
-                        // Iterate through the requiredColumns and map values dynamically using columnIndexMap
                         foreach (var column in requiredStockTableColumns)
                         {
-                            if (column == AllColumnNames.CreatedAt)
+                            if (column == AllColumnNames.CreatedAt || column == AllColumnNames.UpdatedAt)
                             {
                                 dr[column] = DateTime.Now;
                             }
-                            else if (column == AllColumnNames.CreatedById)
+                            else if (column == AllColumnNames.CreatedById || column == AllColumnNames.UpdatedById)
                             {
                                 dr[column] = _session.LoggedInUser.Id;
                             }
@@ -859,7 +1103,6 @@ namespace WIPAT.BLL.Services
                             {
                                 string cellValue = worksheet.Cells[row, AllColumnNames.ExcelColumnIndexes[column]].Text;
 
-                                //map values
                                 var drRes = MapColumnValues(column, cellValue, dr, row);
                                 if (!drRes.Success)
                                 {
@@ -872,7 +1115,7 @@ namespace WIPAT.BLL.Services
                             }
                         }
 
-                        dt.Rows.Add(dr);  // Add the row to the DataTable
+                        dt.Rows.Add(dr);
                     }
 
                     response.Success = true;

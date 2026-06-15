@@ -13,6 +13,7 @@ namespace WIPAT.Entities.BO
         public string Month { get; set; }
         public string Year { get; set; }
         public string FileName { get; set; }
+        public string Reason { get; set; }
     }
 
     public class ValidOrder

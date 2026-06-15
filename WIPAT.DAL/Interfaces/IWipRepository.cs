@@ -13,7 +13,7 @@ namespace WIPAT.DAL.Interfaces
         Response<bool> CheckIfWipCalculated(string month, string year);
         Response<List<ForecastMaster>> GetForecastsWithCalculatedWip();
         Task<Response<List<WipDetail>>> GetWipDetailsByPeriodAsync(string month, string yearString);
-        Task<Response<object>> AddUserWipQtyForPeriodAsync(string month, string year, List<WipDetail> updates);
-        Task<Response<object>> UpdateWipForPeriodAsync(string month, string year, List<WipDetail> updates);
+        Task<Response<object>> AddUserWipQtyForPeriodAsync(string month, string year, List<WipDetail> updates, int loggedInUserId);
+        Task<Response<object>> UpdateWipForPeriodAsync(string month, string year, List<WipDetail> updates, int loggedInUserId);
     }
 }

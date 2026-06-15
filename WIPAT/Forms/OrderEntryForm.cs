@@ -394,11 +394,13 @@ namespace WIPAT
             pnlHeaderCard.BackColor = UITheme.SurfaceWhite;
             pnlGridCard.BackColor = UITheme.SurfaceWhite;
 
-            UITheme.ApplyButtonTheme(btnPreview);
+            // Use the new Semantic Button Style (Assuming Preview is an additive action here)
+            UITheme.StyleButton(btnPreview, AppButtonStyle.PreviewAdd);
 
             lblHeaderTitle.ForeColor = Color.DimGray;
             lblStatus.ForeColor = Color.DimGray;
 
+            // The StyleGrid method signature remains the same, so this works perfectly
             UITheme.StyleGrid(dgvValid, true);
             UITheme.StyleGrid(dgvInvalid, false);
         }

@@ -15,6 +15,7 @@ namespace WIPAT
     using System.Drawing;
     using System.Drawing.Drawing2D;
     using System.Windows.Forms;
+    using WIPAT.Helpers;
 
     public partial class SplashScreen : Form
     {
@@ -25,7 +26,8 @@ namespace WIPAT
         {
             InitializeComponent();
             LoadAppInfo();
-
+            // Set the theme icon globally
+            UITheme.SetFormIcon(this);
             this.Opacity = 50; // start transparent
 
 

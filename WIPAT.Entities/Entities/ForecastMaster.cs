@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace WIPAT.Entities
 {
-    public class ForecastMaster
+    public class ForecastMaster: BaseEntity
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
@@ -16,10 +16,9 @@ namespace WIPAT.Entities
         public string ForecastingFor { get; set; }
         public string FileName { get; set; }
 
-        public DateTime CreatedAt { get; set; }
-        public DateTime? UpdatedAt { get; set; }
         public string CreatedBy { get; set; }
         public bool IsWipCalculated { get; set; }
+        public bool IsContinueWithInactiveItems { get; set; }
         public bool IsWipModifiedByUser { get; set; }
 
 

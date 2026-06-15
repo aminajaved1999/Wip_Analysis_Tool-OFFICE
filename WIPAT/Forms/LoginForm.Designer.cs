@@ -8,11 +8,6 @@ namespace WIPAT
     {
         private System.ComponentModel.IContainer components = null;
 
-        // Dragging helpers
-        private bool dragging = false;
-        private Point dragCursorPoint;
-        private Point dragFormPoint;
-
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null)) components.Dispose();
@@ -24,9 +19,7 @@ namespace WIPAT
             this.leftPanel = new System.Windows.Forms.Panel();
             this.titleLabel = new System.Windows.Forms.Label();
             this.subtitleLabel = new System.Windows.Forms.Label();
-            this.usernameLabel = new System.Windows.Forms.Label();
             this.usernameTextBox = new System.Windows.Forms.TextBox();
-            this.passwordLabel = new System.Windows.Forms.Label();
             this.passwordTextBox = new System.Windows.Forms.TextBox();
             this.rememberCheckBox = new System.Windows.Forms.CheckBox();
             this.signInButton = new System.Windows.Forms.Button();
@@ -43,9 +36,7 @@ namespace WIPAT
             this.leftPanel.BackColor = System.Drawing.Color.White;
             this.leftPanel.Controls.Add(this.titleLabel);
             this.leftPanel.Controls.Add(this.subtitleLabel);
-            this.leftPanel.Controls.Add(this.usernameLabel);
             this.leftPanel.Controls.Add(this.usernameTextBox);
-            this.leftPanel.Controls.Add(this.passwordLabel);
             this.leftPanel.Controls.Add(this.passwordTextBox);
             this.leftPanel.Controls.Add(this.rememberCheckBox);
             this.leftPanel.Controls.Add(this.signInButton);
@@ -54,62 +45,55 @@ namespace WIPAT
             this.leftPanel.Name = "leftPanel";
             this.leftPanel.Size = new System.Drawing.Size(400, 500);
             this.leftPanel.TabIndex = 1;
+            this.leftPanel.Paint += new System.Windows.Forms.PaintEventHandler(this.LeftPanel_Paint);
             this.leftPanel.MouseDown += new System.Windows.Forms.MouseEventHandler(this.Form_MouseDown);
             this.leftPanel.MouseMove += new System.Windows.Forms.MouseEventHandler(this.Form_MouseMove);
             this.leftPanel.MouseUp += new System.Windows.Forms.MouseEventHandler(this.Form_MouseUp);
             // 
             // titleLabel
             // 
-            this.titleLabel.Font = new System.Drawing.Font("Segoe UI", 16F, System.Drawing.FontStyle.Bold);
-            this.titleLabel.Location = new System.Drawing.Point(30, 90);
+            this.titleLabel.Font = new System.Drawing.Font("Segoe UI Semilight", 22F);
+            this.titleLabel.Location = new System.Drawing.Point(26, 80);
             this.titleLabel.Name = "titleLabel";
-            this.titleLabel.Size = new System.Drawing.Size(150, 29);
+            this.titleLabel.Size = new System.Drawing.Size(150, 45);
             this.titleLabel.TabIndex = 0;
             this.titleLabel.Text = "Hello!";
             // 
             // subtitleLabel
             // 
             this.subtitleLabel.Font = new System.Drawing.Font("Segoe UI", 10F);
+            this.subtitleLabel.ForeColor = System.Drawing.Color.DimGray;
             this.subtitleLabel.Location = new System.Drawing.Point(30, 130);
             this.subtitleLabel.Name = "subtitleLabel";
             this.subtitleLabel.Size = new System.Drawing.Size(250, 23);
             this.subtitleLabel.TabIndex = 1;
             this.subtitleLabel.Text = "Sign in to your account";
             // 
-            // usernameLabel
-            // 
-            this.usernameLabel.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.usernameLabel.Location = new System.Drawing.Point(30, 170);
-            this.usernameLabel.Name = "usernameLabel";
-            this.usernameLabel.Size = new System.Drawing.Size(100, 20);
-            this.usernameLabel.TabIndex = 2;
-            this.usernameLabel.Text = "Username";
-            // 
             // usernameTextBox
             // 
+            this.usernameTextBox.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.usernameTextBox.Font = new System.Drawing.Font("Segoe UI", 10F);
+            this.usernameTextBox.ForeColor = System.Drawing.Color.Gray; 
             this.usernameTextBox.Location = new System.Drawing.Point(30, 190);
             this.usernameTextBox.Name = "usernameTextBox";
-            this.usernameTextBox.Size = new System.Drawing.Size(300, 25);
+            this.usernameTextBox.Size = new System.Drawing.Size(300, 18);
             this.usernameTextBox.TabIndex = 3;
-            // 
-            // passwordLabel
-            // 
-            this.passwordLabel.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.passwordLabel.Location = new System.Drawing.Point(30, 230);
-            this.passwordLabel.Name = "passwordLabel";
-            this.passwordLabel.Size = new System.Drawing.Size(100, 20);
-            this.passwordLabel.TabIndex = 4;
-            this.passwordLabel.Text = "Password";
+            this.usernameTextBox.Text = "Username"; 
+            this.usernameTextBox.Enter += new System.EventHandler(this.RemovePlaceholderText);
+            this.usernameTextBox.Leave += new System.EventHandler(this.AddPlaceholderText);
             // 
             // passwordTextBox
             // 
+            this.passwordTextBox.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.passwordTextBox.Font = new System.Drawing.Font("Segoe UI", 10F);
+            this.passwordTextBox.ForeColor = System.Drawing.Color.Gray;
             this.passwordTextBox.Location = new System.Drawing.Point(30, 250);
             this.passwordTextBox.Name = "passwordTextBox";
-            this.passwordTextBox.PasswordChar = '●';
-            this.passwordTextBox.Size = new System.Drawing.Size(300, 25);
+            this.passwordTextBox.Size = new System.Drawing.Size(300, 18);
             this.passwordTextBox.TabIndex = 5;
+            this.passwordTextBox.Text = "Password"; 
+            this.passwordTextBox.Enter += new System.EventHandler(this.RemovePlaceholderText);
+            this.passwordTextBox.Leave += new System.EventHandler(this.AddPlaceholderText);            
             // 
             // rememberCheckBox
             // 
@@ -123,14 +107,16 @@ namespace WIPAT
             // 
             // signInButton
             // 
-            this.signInButton.BackColor = System.Drawing.Color.MidnightBlue;
+            this.signInButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(67)))));
+            this.signInButton.Cursor = System.Windows.Forms.Cursors.Hand;
             this.signInButton.FlatAppearance.BorderSize = 0;
+            this.signInButton.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(37)))), ((int)(((byte)(99)))), ((int)(((byte)(235)))));
             this.signInButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.signInButton.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
             this.signInButton.ForeColor = System.Drawing.Color.White;
             this.signInButton.Location = new System.Drawing.Point(30, 330);
             this.signInButton.Name = "signInButton";
-            this.signInButton.Size = new System.Drawing.Size(300, 35);
+            this.signInButton.Size = new System.Drawing.Size(300, 40);
             this.signInButton.TabIndex = 7;
             this.signInButton.Text = "SIGN IN";
             this.signInButton.UseVisualStyleBackColor = false;
@@ -138,7 +124,7 @@ namespace WIPAT
             // 
             // rightPanel
             // 
-            this.rightPanel.BackColor = System.Drawing.Color.MidnightBlue;
+            this.rightPanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(67)))));
             this.rightPanel.Controls.Add(this.welcomeLabel);
             this.rightPanel.Controls.Add(this.descriptionLabel);
             this.rightPanel.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -152,45 +138,53 @@ namespace WIPAT
             // 
             // welcomeLabel
             // 
-            this.welcomeLabel.Font = new System.Drawing.Font("Segoe UI", 14F, System.Drawing.FontStyle.Bold);
+            this.welcomeLabel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(67)))));
+            this.welcomeLabel.Font = new System.Drawing.Font("Segoe UI", 18F);
             this.welcomeLabel.ForeColor = System.Drawing.Color.White;
-            this.welcomeLabel.Location = new System.Drawing.Point(48, 123);
+            this.welcomeLabel.Location = new System.Drawing.Point(44, 123);
             this.welcomeLabel.Name = "welcomeLabel";
-            this.welcomeLabel.Size = new System.Drawing.Size(300, 30);
+            this.welcomeLabel.Size = new System.Drawing.Size(300, 35);
             this.welcomeLabel.TabIndex = 0;
             this.welcomeLabel.Text = "Welcome Back!";
             // 
             // descriptionLabel
             // 
+            this.descriptionLabel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(67)))));
+            this.descriptionLabel.Font = new System.Drawing.Font("Segoe UI", 10F);
             this.descriptionLabel.ForeColor = System.Drawing.Color.WhiteSmoke;
-            this.descriptionLabel.Location = new System.Drawing.Point(50, 190);
+            this.descriptionLabel.Location = new System.Drawing.Point(46, 180);
             this.descriptionLabel.Name = "descriptionLabel";
-            this.descriptionLabel.Size = new System.Drawing.Size(300, 100);
+            this.descriptionLabel.Size = new System.Drawing.Size(310, 100);
             this.descriptionLabel.TabIndex = 1;
             this.descriptionLabel.Text = "Welcome to the WIP Analysis Tool. Please sign in to securely access the applicati" +
-    "on and perform precise WIP calculations";
+    "on and perform precise WIP calculations.";
             // 
             // closeButton
             // 
             this.closeButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.closeButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(67)))));
+            this.closeButton.Cursor = System.Windows.Forms.Cursors.Hand;
             this.closeButton.FlatAppearance.BorderSize = 0;
+            this.closeButton.FlatAppearance.MouseOverBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(41)))), ((int)(((byte)(59)))));
             this.closeButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.closeButton.Font = new System.Drawing.Font("Segoe UI", 12F, System.Drawing.FontStyle.Bold);
-            this.closeButton.ForeColor = System.Drawing.Color.Navy;
+            this.closeButton.ForeColor = System.Drawing.Color.White;
             this.closeButton.Location = new System.Drawing.Point(755, 5);
             this.closeButton.Name = "closeButton";
             this.closeButton.Size = new System.Drawing.Size(40, 30);
             this.closeButton.TabIndex = 8;
             this.closeButton.Text = "X";
-            this.closeButton.UseVisualStyleBackColor = true;
+            this.closeButton.UseVisualStyleBackColor = false;
             this.closeButton.Click += new System.EventHandler(this.closeButton_Click);
             // 
             // LoginForm
             // 
+            this.AcceptButton = this.signInButton;
             this.ClientSize = new System.Drawing.Size(800, 500);
             this.Controls.Add(this.closeButton);
             this.Controls.Add(this.rightPanel);
             this.Controls.Add(this.leftPanel);
+            this.DoubleBuffered = true;
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
             this.Name = "LoginForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
@@ -205,26 +199,21 @@ namespace WIPAT
 
         }
 
+        private System.Windows.Forms.Panel leftPanel;
+        private System.Windows.Forms.Panel rightPanel;
 
+        private System.Windows.Forms.Label titleLabel;
+        private System.Windows.Forms.Label subtitleLabel;
 
-        private Panel leftPanel;
-        private Panel rightPanel;
+        private System.Windows.Forms.TextBox usernameTextBox;
+        private System.Windows.Forms.TextBox passwordTextBox;
 
-        private Label titleLabel;
-        private Label subtitleLabel;
+        private System.Windows.Forms.CheckBox rememberCheckBox;
+        private System.Windows.Forms.Button signInButton;
 
-        private Label usernameLabel;
-        private TextBox usernameTextBox;
+        private System.Windows.Forms.Label welcomeLabel;
+        private System.Windows.Forms.Label descriptionLabel;
 
-        private Label passwordLabel;
-        private TextBox passwordTextBox;
-
-        private CheckBox rememberCheckBox;
-        private Button signInButton;
-
-        private Label welcomeLabel;
-        private Label descriptionLabel;
-
-        private Button closeButton;
+        private System.Windows.Forms.Button closeButton;
     }
 }

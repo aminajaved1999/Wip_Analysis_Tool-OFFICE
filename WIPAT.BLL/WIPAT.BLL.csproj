@@ -82,7 +82,6 @@
     <Compile Include="Strategies\SystemStrategy.cs" />
     <Compile Include="Strategies\WipCalculationContext.cs" />
     <Compile Include="Manager\ForecastManager.cs" />
-    <Compile Include="_Manager\FilesManager.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

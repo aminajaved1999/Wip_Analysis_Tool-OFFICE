@@ -55,7 +55,7 @@ namespace WIPAT.DAL
                 var query = _context.ActualOrders
                     .AsNoTracking()
                     .Include(o => o.ItemCatalogue)
-                    .Where(o => o.Month == month && o.Year == year)
+                    .Where(o => o.Month == month && o.Year == year)    
                     .ToList();
 
                 if (!query.Any())
@@ -70,21 +70,30 @@ namespace WIPAT.DAL
                 #region DataTable Construction
                 DataTable table = new DataTable();
                 table.Columns.Add("ItemCatalogueId", typeof(int));
-                table.Columns.Add("Casin", typeof(string));
+                table.Columns.Add("CASIN", typeof(string));
                 table.Columns.Add("Quantity", typeof(int));
                 table.Columns.Add("Month", typeof(string));
                 table.Columns.Add("Year", typeof(string));
                 table.Columns.Add("FileName", typeof(string));
 
+                // ---> ADDED: New Columns for UI <---
+                table.Columns.Add("IsActive", typeof(bool));
+                table.Columns.Add("ItemStatus", typeof(string));
+
                 foreach (var o in query)
                 {
+                    bool isActive = o.ItemCatalogue?.isActive ?? false;
+                    string itemStatus = o.ItemCatalogue?.ItemStatus;
+
                     table.Rows.Add(
                         o.ItemCatalogueId,
-                        o.ItemCatalogue?.Casin ?? "Unknown", // Safe navigation
+                        o.ItemCatalogue?.Casin,
                         o.Quantity,
                         o.Month,
                         o.Year,
-                        o.FileName
+                        o.FileName,
+                        isActive,
+                        itemStatus
                     );
                 }
                 #endregion
@@ -224,8 +233,8 @@ namespace WIPAT.DAL
             {
                 var query = _context.ActualOrders
                     .AsNoTracking()
-                    .Where(o => o.Month == month && o.Year == year)
                     .Include(o => o.ItemCatalogue)
+                    .Where(o => o.Month == month && o.Year == year)
                     .ToList();
 
                 if (!query.Any())
@@ -236,6 +245,79 @@ namespace WIPAT.DAL
                         Message = $"No data found for file '{fileName}', month '{month}', and year '{year}'."
                     };
                 }
+
+                // DataTable setup
+                DataTable table = new DataTable();
+
+                table.Columns.Add("ItemCatalogueId", typeof(int));
+                table.Columns.Add("CASIN", typeof(string));
+                table.Columns.Add("Quantity", typeof(int));
+                table.Columns.Add("Month", typeof(string));
+                table.Columns.Add("Year", typeof(string));
+                table.Columns.Add("FileName", typeof(string));
+
+                // ItemCatalogue raw DB columns
+                table.Columns.Add("IsActive", typeof(bool));
+                table.Columns.Add("ItemStatus", typeof(string));
+
+                foreach (var o in query)
+                {
+                    var catalogue = o.ItemCatalogue;
+
+                    table.Rows.Add(
+                        o.ItemCatalogueId,
+                        catalogue?.Casin,
+                        o.Quantity,
+                        o.Month,
+                        o.Year,
+                        o.FileName,
+                        catalogue?.isActive,
+                        catalogue?.ItemStatus
+                    );
+                }
+
+                return new Response<Tuple<DataTable, List<ActualOrder>>>()
+                {
+                    Success = true,
+                    Message = $"Order Data for '{month}-{year}' retrieved successfully.",
+                    Data = new Tuple<DataTable, List<ActualOrder>>(table, query)
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Response<Tuple<DataTable, List<ActualOrder>>>
+                {
+                    Success = false,
+                    Message = $"Error: {ex.Message}"
+                };
+            }
+        }
+        public Response<Tuple<DataTable, List<ActualOrder>>> _GetExistingOrderData(string fileName, string month, string year)
+        {
+            try
+            {
+                // 1. Filter by Month/Year AND ensure the related ItemCatalogue is Active
+                var query = _context.ActualOrders
+                    .AsNoTracking()
+                    .Include(o => o.ItemCatalogue)
+                    .Where(o => o.Month == month
+                             && o.Year == year
+                             && o.ItemCatalogue != null        // Safety check
+                             && o.ItemCatalogue.isActive)      // Filter for active records only
+                    .ToList();
+
+
+                if (!query.Any())
+                {
+                    return new Response<Tuple<DataTable, List<ActualOrder>>>
+                    {
+                        Success = false,
+                        Message = $"No active data found for file '{fileName}', month '{month}', and year '{year}'."
+                    };
+                }
+
+                int count = query.Count;
+
 
                 DataTable table = new DataTable();
                 table.Columns.Add("ItemCatalogueId", typeof(int));
@@ -252,7 +334,7 @@ namespace WIPAT.DAL
                 return new Response<Tuple<DataTable, List<ActualOrder>>>
                 {
                     Success = true,
-                    Message = $"Order Data for '{month}-{year}' retrieved successfully.",
+                    Message = $"Active Order Data for '{month}-{year}' retrieved successfully.",
                     Data = new Tuple<DataTable, List<ActualOrder>>(table, query)
                 };
             }

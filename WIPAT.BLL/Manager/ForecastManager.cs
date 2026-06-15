@@ -17,7 +17,7 @@ namespace WIPAT.BLL.Managers
     {
         private readonly IForecastRepository _forecastRepository;
         private readonly IItemsRepository _itemsRepository;
-        private readonly IExcelService _excelService; 
+        private readonly IExcelService _excelService;
 
         public ForecastManager(
             IForecastRepository forecastRepository,
@@ -60,6 +60,7 @@ namespace WIPAT.BLL.Managers
                 }
 
                 var newForecastData = importResponse.Data;
+                var IsContinueWithInactiveItems = importResponse.Data.IsContinueWithInactiveItems;
                 #endregion
 
                 #region 3. Check Session Duplicates (by Date)
@@ -73,7 +74,7 @@ namespace WIPAT.BLL.Managers
                 if (dbCheck.Success)
                 {
                     // Case: NEW DATA -> Save to DB
-                    var saveResponse = _forecastRepository.SaveForecastDataToDatabase(newForecastData, isFirstFile);
+                    var saveResponse = _forecastRepository.SaveForecastDataToDatabase(newForecastData, isFirstFile, IsContinueWithInactiveItems);
                     if (!saveResponse.Success)
                         return new Response<List<ForecastFileData>> { Success = false, Message = saveResponse.Message };
 
@@ -87,6 +88,7 @@ namespace WIPAT.BLL.Managers
                     currentSessionFiles.Add(newForecastData);
                     response.Success = true;
                     response.Message = "Forecast file imported and saved successfully.";
+                    response.IsContinueWithInactiveItems = IsContinueWithInactiveItems;
                 }
                 else
                 {
@@ -121,7 +123,9 @@ namespace WIPAT.BLL.Managers
         public async Task<Response<ForecastFileData>> GetForecastFilePreviewAsync(string filePath, int commitmentPeriod)
         {
             // Reuse the same processing logic, just treat it as 'First File' for preview purposes
-            return await ProcessForecastFile(filePath, commitmentPeriod, true);
+
+            var res = await ProcessForecastFile(filePath, commitmentPeriod, true);
+            return res;
         }
 
         public async Task<Response<ForecastFileData>> LoadExistingForecastAsync(string month, string year)
@@ -149,7 +153,8 @@ namespace WIPAT.BLL.Managers
                     FilteredTable = dbResult.Data.Item1,
                     Forecast = dbResult.Data.Item2,
                     ForecastFor = dbResult.Data.Item2?.ForecastingFor ?? $"{month} {year}",
-                    IsWipAlreadyCalculated = dbResult.Data.Item2.IsWipCalculated
+                    IsWipAlreadyCalculated = dbResult.Data.Item2.IsWipCalculated,
+                    IsContinueWithInactiveItems = dbResult.Data.Item2.IsContinueWithInactiveItems
                 };
 
                 return response;
@@ -164,54 +169,60 @@ namespace WIPAT.BLL.Managers
         {
             var response = new Response<ForecastFileData>();
 
-            // 1. Define Columns
             var requiredColumns = new List<string>
-            {
-                _excelService.GetEnumValue(ForecastExcelColumns.CASIN),
-                _excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity),
-                _excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period),
-                _excelService.GetEnumValue(ForecastExcelColumns.PO_Date),
-                ForecastExcelColumns.ProjectionMonth.ToString(),
-                ForecastExcelColumns.ProjectionYear.ToString()
-            };
+    {
+        _excelService.GetEnumValue(ForecastExcelColumns.CASIN),
+        _excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity),
+        _excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period),
+        _excelService.GetEnumValue(ForecastExcelColumns.PO_Date),
+        ForecastExcelColumns.ProjectionMonth.ToString(),
+        ForecastExcelColumns.ProjectionYear.ToString()
+    };
 
-            // 2. Delegate Excel Reading to Service
             string sheetName = _excelService.GetEnumValue(ExcelSheetNames.Forecast);
 
-            // Validation
             var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Forecast.ToString(), sheetName, requiredColumns);
             if (!valRes.Success)
             {
-                return new Response<ForecastFileData> { Success = false, Message = valRes.Message };
+                response.Success = false;
+                response.Message = valRes.Message;
+                response.Data = new ForecastFileData();
+                response.Data.DeactivatedItems = valRes.DeactivatedItems;
+                response.Data.MissingItems = valRes.MissingItems;
+                response.Data.ProblemItemsTable = valRes.ProblemItemsTable;
+                return response;
             }
 
-            // Reading
-            //var readRes = _excelService.ReadForecastExcelToDataTable(filePath, sheetName);
             var readRes = _excelService.ReadExcelToDataTable(filePath, sheetName, requiredColumns);
             if (!readRes.Success)
             {
                 return new Response<ForecastFileData> { Success = false, Message = readRes.Message };
             }
 
-
             DataTable rawTable = readRes.Data;
 
-            // 3. Transform Data (Replaces the loop inside ImportForecastFile)
             var processedTable = new DataTable();
             foreach (var col in requiredColumns) processedTable.Columns.Add(col);
             processedTable.Columns.Add("Month");
             processedTable.Columns.Add("Year");
             processedTable.Columns.Add("Wip");
             processedTable.Columns.Add("IsSystemGenerated", typeof(bool));
+            processedTable.Columns.Add("IsActive", typeof(bool));
+            processedTable.Columns.Add("ItemStatus", typeof(string));
 
-            // To track Commitment Period logic
             var asinRowIndex = new Dictionary<string, int>();
 
-            // Get Projection Date from the first row of data (Assuming Row 2 in Excel = Row 0 in DataTable)
             if (rawTable.Rows.Count == 0)
             {
                 return new Response<ForecastFileData> { Success = false, Message = "File is empty." };
             }
+
+            // ---> ADDED: Fetch all DB items to act as the source of truth <---
+            var allDbItemsRes = await _itemsRepository.GetActiveItemCatalogues(true); // true to include inactive
+            var allDbItems = allDbItemsRes.Success && allDbItemsRes.Data != null
+                ? allDbItemsRes.Data.GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, ItemCatalogue>(StringComparer.OrdinalIgnoreCase);
+            // ------------------------------------------------------------------
 
             string projMonthStr = rawTable.Rows[0][ForecastExcelColumns.ProjectionMonth.ToString()]?.ToString();
             string projYearStr = rawTable.Rows[0][ForecastExcelColumns.ProjectionYear.ToString()]?.ToString();
@@ -226,25 +237,15 @@ namespace WIPAT.BLL.Managers
             string ProjectionYear = projectionDate.ToString("yyyy");
             string forecastFor = projectionDate.AddMonths(commitmentPeriod + 1).ToString("MMMM yyyy");
 
-            // 4. Loop Rows & Parse
             foreach (DataRow row in rawTable.Rows)
             {
                 string casin = row[_excelService.GetEnumValue(ForecastExcelColumns.CASIN)].ToString().Trim();
-                if (string.IsNullOrEmpty(casin))
-                {
-                    continue;
-                }
-
+                if (string.IsNullOrEmpty(casin)) continue;
 
                 var newRow = processedTable.NewRow();
 
-                // Copy basic cols
-                foreach (var col in requiredColumns)
-                {
-                    newRow[col] = row[col];
-                }
+                foreach (var col in requiredColumns) newRow[col] = row[col];
 
-                // Parse PO Date for Month/Year
                 if (DateTime.TryParse(row[_excelService.GetEnumValue(ForecastExcelColumns.PO_Date)].ToString(), out DateTime poDate))
                 {
                     newRow["Month"] = poDate.ToString("MMMM");
@@ -258,38 +259,29 @@ namespace WIPAT.BLL.Managers
 
                 newRow["IsSystemGenerated"] = true;
 
-                // WIP Calculation Logic
-                if (!asinRowIndex.ContainsKey(casin))
+                // ---> UPDATED: Get Both Properties Directly From DB <---
+                if (allDbItems.TryGetValue(casin, out var dbItem))
                 {
-                    asinRowIndex[casin] = 0;
-                }
-
-
-                if (isFirstFile && asinRowIndex[casin] == commitmentPeriod)
-                {
-                    //if (decimal.TryParse(row[_excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity)]?.ToString(), out decimal reqQty))
-                    //{
-                    //    newRow["Wip"] = reqQty;
-
-                    //}
-                    //else
-                    //{
-                    //    newRow["Wip"] = DBNull.Value;
-                    //}
-                    newRow["Wip"] = 0;
-
+                    newRow["IsActive"] = dbItem.isActive; // Adjust casing based on your entity (IsActive vs isActive)
+                    newRow["ItemStatus"] = dbItem.ItemStatus;
                 }
                 else
                 {
-                    newRow["Wip"] = DBNull.Value;
+                    newRow["IsActive"] = false;
+                    newRow["ItemStatus"] = "Missing"; // Fallback if entirely missing from DB
                 }
+                // -------------------------------------------------------
+
+                if (!asinRowIndex.ContainsKey(casin)) asinRowIndex[casin] = 0;
+
+                if (isFirstFile && asinRowIndex[casin] == commitmentPeriod) newRow["Wip"] = 0;
+                else newRow["Wip"] = DBNull.Value;
 
                 processedTable.Rows.Add(newRow);
                 asinRowIndex[casin]++;
             }
 
-            // 5. Generate Missing Items (Business Logic)
-            await GenerateMissingItemsAsync(processedTable, commitmentPeriod, isFirstFile);
+            await GenerateMissingItemsAsync(processedTable, commitmentPeriod, isFirstFile, valRes.IsContinueWithInactiveItems);
 
             response.Success = true;
             response.Data = new ForecastFileData
@@ -300,13 +292,14 @@ namespace WIPAT.BLL.Managers
                 FilteredTable = processedTable.Copy(),
                 ProjectionMonth = ProjectionMonth,
                 ProjectionYear = ProjectionYear,
-                ForecastFor = forecastFor
+                ForecastFor = forecastFor,
+                IsContinueWithInactiveItems = valRes.IsContinueWithInactiveItems,
+                ProblemItemsTable = valRes.ProblemItemsTable,
             };
 
             return response;
         }
-
-        private async Task GenerateMissingItemsAsync(DataTable table, int commitmentPeriod, bool isFirstFile)
+        private async Task _GenerateMissingItemsAsync(DataTable table, int commitmentPeriod, bool isFirstFile)
         {
             // 1. Identify distinct Schedules (Periods)
             var distinctSchedules = table.AsEnumerable()
@@ -328,7 +321,7 @@ namespace WIPAT.BLL.Managers
 
 
             // 2. Get DB Items
-            var resItems = await _itemsRepository.GetItemCatalogues();
+            var resItems = await _itemsRepository.GetActiveItemCatalogues();
             if (!resItems.Success || resItems.Data == null)
             {
                 return;
@@ -380,7 +373,68 @@ namespace WIPAT.BLL.Managers
                 }
             }
         }
+        private async Task GenerateMissingItemsAsync(DataTable table, int commitmentPeriod, bool isFirstFile, bool includeInactiveItems)
+        {
+            var distinctSchedules = table.AsEnumerable()
+                .Select(r => new
+                {
+                    Period = r[_excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period)].ToString(),
+                    PODate = r[_excelService.GetEnumValue(ForecastExcelColumns.PO_Date)].ToString(),
+                    Month = r["Month"].ToString(),
+                    Year = r["Year"].ToString()
+                })
+                .Distinct()
+                .OrderBy(x => int.TryParse(x.Period, out int p) ? p : 999)
+                .ToList();
 
+            if (!distinctSchedules.Any()) return;
+
+            var resItems = await _itemsRepository.GetActiveItemCatalogues(includeInactiveItems);
+            if (!resItems.Success || resItems.Data == null) return;
+
+            // ---> UPDATED: Store the whole item, not just the boolean <---
+            var dbCasinDict = resItems.Data
+                .GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var fileCasins = table.AsEnumerable()
+                .Select(r => r["C-ASIN"].ToString().Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var missingCasins = dbCasinDict.Keys.Except(fileCasins, StringComparer.OrdinalIgnoreCase).ToList();
+
+            foreach (var missingCasin in missingCasins)
+            {
+                int periodIndex = 0;
+                foreach (var schedule in distinctSchedules)
+                {
+                    var newRow = table.NewRow();
+                    newRow["C-ASIN"] = missingCasin;
+                    newRow[_excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity)] = "0";
+                    newRow[_excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period)] = schedule.Period;
+                    newRow[_excelService.GetEnumValue(ForecastExcelColumns.PO_Date)] = schedule.PODate;
+                    newRow["Month"] = schedule.Month;
+                    newRow["Year"] = schedule.Year;
+                    newRow["IsSystemGenerated"] = true;
+
+                    // ---> UPDATED: Fetch properties from the stored DB item <---
+                    var dbItem = dbCasinDict[missingCasin];
+                    newRow["IsActive"] = dbItem.isActive;
+                    newRow["ItemStatus"] = dbItem.ItemStatus;
+                    // -----------------------------------------------------------
+
+                    newRow[ForecastExcelColumns.ProjectionMonth.ToString()] = "";
+                    newRow[ForecastExcelColumns.ProjectionYear.ToString()] = "";
+
+                    if (isFirstFile && periodIndex == commitmentPeriod) newRow["Wip"] = 0;
+                    else newRow["Wip"] = DBNull.Value;
+
+                    table.Rows.Add(newRow);
+                    periodIndex++;
+                }
+            }
+        }
         #endregion
     }
 }

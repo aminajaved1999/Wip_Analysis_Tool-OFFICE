@@ -19,11 +19,23 @@ namespace WIPAT.Entities
         public const string CasePackQty = "Case Pack Qty";
         public const string OpeningStock = "OpeningStock";
         public const string ItemCatalogueId = "ItemCatalogueId";
+
         public const string CreatedAt = "CreatedAt";
         public const string CreatedById = "CreatedById";
 
-        // Expose all as an array
-        public static IEnumerable<string> ExcelColumnNames => new[] { CAsin, Model, Description, ColorName, Size, PCPK, CasePackQty, OpeningStock };
+        public const string UpdatedAt = "UpdatedAt";
+        public const string UpdatedById = "UpdatedById";
+
+        public const string Notes = "Notes";
+        public const string IsActive = "IsActive";
+        public const string ItemStatus = "ItemStatus";
+
+        public const string OrderQty = "OrderQty";          // Add this
+        public const string ProductionQty = "ProductionQty"; // Add this
+
+
+        // Expose all as an array (Included IsActive here)
+        public static IEnumerable<string> ExcelColumnNames => new[] { CAsin, Model, Description, ColorName, Size, PCPK, CasePackQty, OpeningStock, Notes, IsActive };
 
         public static IEnumerable<string> CatalogueTableColumns => ExcelColumnNames.Concat(new[] { CreatedAt, CreatedById });
 
@@ -32,17 +44,19 @@ namespace WIPAT.Entities
         // This method determines the type based on the column name
         public static Type GetColumnType(string columnName)
         {
-            if (columnName == ItemCatalogueId || columnName == CreatedById || columnName == OpeningStock)
+            // NEW: Added UpdatedById
+            if (columnName == ItemCatalogueId || columnName == CreatedById || columnName == UpdatedById || columnName == OpeningStock)
             {
                 return typeof(int);
-
             }
-            else if (columnName == CreatedAt)
+            // NEW: Added UpdatedAt
+            else if (columnName == CreatedAt || columnName == UpdatedAt)
             {
                 return typeof(DateTime);
             }
             else
             {
+                // IsActive is registered as string to accept flexible values (TRUE, FALSE, 1, 0, Yes, No)
                 return typeof(string);
             }
 

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace WIPAT.Entities
 {
-    public class ForecastDetail
+    public class ForecastDetail: BaseEntity
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
@@ -29,6 +29,7 @@ namespace WIPAT.Entities
         public string Month { get; set; }
         public string Year { get; set; }
         public bool IsSystemGenerated { get; set; }
+        public bool IsActive { get; set; }
 
         // Foreign Key
         public int POForecastMasterId { get; set; }

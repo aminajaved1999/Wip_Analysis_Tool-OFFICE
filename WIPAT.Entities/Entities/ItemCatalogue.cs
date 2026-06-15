@@ -22,8 +22,13 @@ namespace WIPAT.Entities
         public string Size { get; set; }
         public string PCPK { get; set; }
         public int? MOQ { get; set; }
-        public int? CasePackQty { get; set; }
+        public int CasePackQty { get; set; }
         public bool isActive { get; set; }
+        public string Notes { get; set; }
+        public string ItemStatus { get; set; }
+
+        public virtual ICollection<InitialStock> InitialStocks { get; set; } = new List<InitialStock>();
+        public virtual ICollection<ActualOrder> ActualOrders { get; set; } = new List<ActualOrder>();
     }
 
     

@@ -1,5 +1,7 @@
-﻿using System;
+﻿using OfficeOpenXml;
+using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.Globalization;
 using System.IO;
@@ -30,6 +32,389 @@ namespace WIPAT.BLL.Managers
         }
 
         public async Task<Response<OrderFileResponse>> HandleOrderFileAsync(string filePath, WipSession session)
+        {
+            var response = new Response<OrderFileResponse>
+            {
+                Data = new OrderFileResponse
+                {
+                    ValidOrders = new List<ActualOrder>(),
+                    MissingOrders = new List<InvalidOrder>(),
+                    DataTable = new DataTable()
+                }
+            };
+
+            string fileName = Path.GetFileName(filePath);
+
+            var requiredMonthYear = session.CurrentMonthWithYear;
+            if (string.IsNullOrEmpty(requiredMonthYear))
+                return new Response<OrderFileResponse> { Success = false, Message = "Session month is not set. Please upload forecasts first." };
+
+            var parts = requiredMonthYear.Split(' ');
+            if (parts.Length < 2)
+                return new Response<OrderFileResponse> { Success = false, Message = "Invalid Session Month format." };
+
+            string requiredMonth = parts[0];
+            string requiredYear = parts[1];
+
+            try
+            {
+                var existingFileRes = await _orderRepository.OrderFileExists(fileName, requiredMonth, requiredYear);
+
+                if (existingFileRes.Success)
+                {
+                    var dbData = _orderRepository.GetExistingOrderData(fileName, requiredMonth, requiredYear);
+
+                    if (!dbData.Success)
+                        return new Response<OrderFileResponse> { Success = false, Message = dbData.Message };
+
+                    response.Success = true;
+                    response.Data.DataTable = dbData.Data.Item1;
+                    response.Data.ValidOrders = dbData.Data.Item2;
+                    response.Message = $"⚠️ Orders for {requiredMonth} {requiredYear} already exist. Loaded from Database.";
+                    return response;
+                }
+
+                string sheetName = ConfigurationManager.AppSettings["OrderWorksheetName"];
+                if (string.IsNullOrWhiteSpace(sheetName))
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = "The worksheet name configuration ('OrderWorksheetName') is missing or empty in the App.config file." };
+                }
+
+                var requiredCols = new List<string> { "CASIN", "Quantity", "Month", "Year" };
+
+                var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Order.ToString(), sheetName, requiredCols, requiredMonth, requiredYear);
+
+                if (!valRes.Success)
+                {
+                    response.Success = false;
+                    response.Message = valRes.Message;
+                    response.Data = new OrderFileResponse();
+                    response.Data.ProblemItemsTable = valRes.ProblemItemsTable;
+                    response.Data.DeactivatedItems = valRes.DeactivatedItems;
+                    response.Data.MissingItems = valRes.MissingItems;
+                    return response;
+                }
+
+                var readRes = _excelService.ReadExcelToDataTable(filePath, sheetName, requiredCols);
+                if (!readRes.Success) return new Response<OrderFileResponse> { Success = false, Message = readRes.Message };
+
+                DataTable rawData = readRes.Data;
+
+                foreach (var col in requiredCols) response.Data.DataTable.Columns.Add(col);
+
+                response.Data.DataTable.Columns.Add("IsActive", typeof(bool));
+                response.Data.DataTable.Columns.Add("ItemStatus", typeof(string));
+                response.Data.DataTable.Columns.Add("Status");
+
+                // ---> UPDATED: Fetch full DB Items instead of just IDs <---
+                var allDbItemsRes = await _itemsRepository.GetActiveItemCatalogues(true);
+                var allDbItems = allDbItemsRes.Success && allDbItemsRes.Data != null
+                    ? allDbItemsRes.Data.GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase)
+                    : new Dictionary<string, ItemCatalogue>(StringComparer.OrdinalIgnoreCase);
+                // ----------------------------------------------------------
+
+                foreach (DataRow row in rawData.Rows)
+                {
+                    string casin = row["CASIN"].ToString().Trim();
+                    string qtyStr = row["Quantity"].ToString();
+                    string monthStr = row["Month"].ToString();
+                    string yearStr = row["Year"].ToString();
+
+                    DataRow uiRow = response.Data.DataTable.NewRow();
+                    uiRow["CASIN"] = casin;
+                    uiRow["Quantity"] = qtyStr;
+                    uiRow["Month"] = monthStr;
+                    uiRow["Year"] = yearStr;
+
+                    int.TryParse(qtyStr, NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out int qty);
+                    int.TryParse(monthStr, out int monthNum);
+
+                    string monthName = monthNum >= 1 && monthNum <= 12
+                        ? CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(monthNum)
+                        : "Invalid";
+
+                    // ---> UPDATED: Directly map from the DB entity <---
+                    if (allDbItems.TryGetValue(casin, out var dbItem))
+                    {
+                        uiRow["IsActive"] = dbItem.isActive;
+                        uiRow["ItemStatus"] = dbItem.ItemStatus;
+
+                        if (!dbItem.isActive && !valRes.IsContinueWithInactiveItems)
+                        {
+                            // Item is deactivated, and user did NOT explicitly choose to ignore it
+                            uiRow["Status"] = "Deactivated ⚠️";
+                            response.Data.MissingOrders.Add(new InvalidOrder
+                            {
+                                Casin = casin,
+                                Quantity = qtyStr,
+                                Month = monthName,
+                                Year = yearStr,
+                                FileName = fileName,
+                                Reason = "Deactivated in Catalogue"
+                            });
+                        }
+                        else
+                        {
+                            // Valid Item (or Deactivated item that user opted to Continue/Ignore)
+                            uiRow["Status"] = "Valid ✔";
+                            response.Data.ValidOrders.Add(new ActualOrder
+                            {
+                                ItemCatalogueId = dbItem.Id,
+                                Quantity = qty,
+                                Month = monthName,
+                                Year = yearStr,
+                                FileName = fileName,
+                                CreatedById = session.LoggedInUser.Id,
+                                CreatedAt = DateTime.Now
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // Item is totally missing from the DB
+                        uiRow["IsActive"] = false;
+                        uiRow["ItemStatus"] = "Missing";
+                        uiRow["Status"] = "Missing ❌";
+                        response.Data.MissingOrders.Add(new InvalidOrder
+                        {
+                            Casin = casin,
+                            Quantity = qtyStr,
+                            Month = monthName,
+                            Year = yearStr,
+                            FileName = fileName,
+                            Reason = "Missing in Catalogue"
+                        });
+                    }
+                    // --------------------------------------------------
+
+                    response.Data.DataTable.Rows.Add(uiRow);
+                }
+
+                if (response.Data.ValidOrders.Count == 0)
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = "No valid orders found in file." };
+                }
+
+                var saveRes = await _orderRepository.SaveOrdersAndUpdateStock(response.Data.ValidOrders);
+
+                if (!saveRes.Success)
+                    return new Response<OrderFileResponse> { Success = false, Message = saveRes.Message };
+
+                response.Success = true;
+                string ignoreNote = valRes.IsContinueWithInactiveItems ? $" (Ignored {valRes.DeactivatedItems.Count} deactivated items)" : "";
+                response.Message = $"Orders uploaded and saved successfully.{ignoreNote}";
+                return response;
+            }
+            catch (Exception ex)
+            {
+                return new Response<OrderFileResponse> { Success = false, Message = $"Unexpected error: {ex.Message}" };
+            }
+        }
+        public async Task<Response<OrderFileResponse>> __HandleOrderFileAsync(string filePath, WipSession session)
+        {
+            var response = new Response<OrderFileResponse>
+            {
+                Data = new OrderFileResponse
+                {
+                    ValidOrders = new List<ActualOrder>(),
+                    MissingOrders = new List<InvalidOrder>(), // Now populated with both Missing & Deactivated
+                    DataTable = new DataTable()
+                }
+            };
+
+            string fileName = Path.GetFileName(filePath);
+
+            #region 1. Pre-Check: Session Month
+            var requiredMonthYear = session.CurrentMonthWithYear;
+            if (string.IsNullOrEmpty(requiredMonthYear))
+                return new Response<OrderFileResponse> { Success = false, Message = "Session month is not set. Please upload forecasts first." };
+
+            var parts = requiredMonthYear.Split(' ');
+            if (parts.Length < 2)
+                return new Response<OrderFileResponse> { Success = false, Message = "Invalid Session Month format." };
+
+            string requiredMonth = parts[0];
+            string requiredYear = parts[1];
+            #endregion
+
+            try
+            {
+                #region 2. Check Database for Existing Data
+                var existingFileRes = await _orderRepository.OrderFileExists(fileName, requiredMonth, requiredYear);
+
+                if (existingFileRes.Success)
+                {
+                    // DATA EXISTS -> Load from DB
+                    var dbData = _orderRepository.GetExistingOrderData(fileName, requiredMonth, requiredYear);
+
+                    if (!dbData.Success)
+                        return new Response<OrderFileResponse> { Success = false, Message = dbData.Message };
+
+                    response.Success = true;
+                    response.Data.DataTable = dbData.Data.Item1;
+                    response.Data.ValidOrders = dbData.Data.Item2;
+                    response.Message = $"⚠️ Orders for {requiredMonth} {requiredYear} already exist. Loaded from Database.";
+                    return response;
+                }
+                #endregion
+
+                #region 3. Parse Excel File
+                // Define Requirements
+                string sheetName = ConfigurationManager.AppSettings["OrderWorksheetName"];
+                if (string.IsNullOrWhiteSpace(sheetName))
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = "The worksheet name configuration ('OrderWorksheetName') is missing or empty in the App.config file." };
+                }
+                var requiredCols = new List<string> { "CASIN", "Quantity", "Month", "Year" };
+
+                // Validate Structure
+                var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Order.ToString(), sheetName, requiredCols);
+
+                // Check if the error is structural (e.g. missing columns) vs catalogue logic (missing/deactivated items)
+                bool hasCatalogueIssues = (valRes.MissingItems != null && valRes.MissingItems.Any()) ||
+                                          (valRes.DeactivatedItems != null && valRes.DeactivatedItems.Any());
+
+                // ONLY abort immediately if it's a hard structural error. Let catalogue issues pass so we can build the GridView.
+                if (!valRes.Success && !hasCatalogueIssues)
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = valRes.Message };
+                }
+
+                // Read Data
+                var readRes = _excelService.ReadExcelToDataTable(filePath, sheetName, requiredCols);
+                if (!readRes.Success) return new Response<OrderFileResponse> { Success = false, Message = readRes.Message };
+
+                DataTable rawData = readRes.Data;
+                #endregion
+
+                #region 4. Process Logic (Validate Items & Create Objects)
+
+                // Prepare UI DataTable columns
+                foreach (var col in requiredCols) response.Data.DataTable.Columns.Add(col);
+                response.Data.DataTable.Columns.Add("IsActive", typeof(bool));    // <--- ADD THIS
+                response.Data.DataTable.Columns.Add("ItemStatus", typeof(string)); // <--- ADD THIS
+                response.Data.DataTable.Columns.Add("Status"); // Existing GridView visual status
+
+                // --- BULK FETCH LOGIC ---
+                var distinctCasins = rawData.AsEnumerable()
+                    .Select(row => row.Field<string>("CASIN")?.Trim())
+                    .Where(c => !string.IsNullOrEmpty(c))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                // Fetch all required IDs in one database call to prevent N+1 queries
+                Dictionary<string, int> catalogueItemsDict = await _itemsRepository.GetCatalogueIdsByCasinsAsync(distinctCasins);
+
+                foreach (DataRow row in rawData.Rows)
+                {
+                    string casin = row["CASIN"].ToString().Trim();
+                    string qtyStr = row["Quantity"].ToString();
+                    string monthStr = row["Month"].ToString();
+                    string yearStr = row["Year"].ToString();
+
+                    int.TryParse(qtyStr, NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out int qty);
+                    int.TryParse(monthStr, out int monthNum);
+
+                    // Convert numeric month to Name (e.g., 1 -> January)
+                    string monthName = monthNum >= 1 && monthNum <= 12
+                        ? CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(monthNum)
+                        : "Invalid";
+
+                    DataRow uiRow = response.Data.DataTable.NewRow();
+                    uiRow["CASIN"] = casin;
+                    uiRow["Quantity"] = qtyStr;
+                    uiRow["Month"] = monthStr;
+                    uiRow["Year"] = yearStr;
+
+                    // --- CHECK STATUS USING valRes LISTS ---
+                    bool isMissing = valRes.MissingItems?.Contains(casin, StringComparer.OrdinalIgnoreCase) == true;
+                    bool isDeactivated = valRes.DeactivatedItems?.Contains(casin, StringComparer.OrdinalIgnoreCase) == true;
+
+                    if (isMissing)
+                    {
+                        uiRow["Status"] = "Missing ❌";
+                        response.Data.MissingOrders.Add(new InvalidOrder
+                        {
+                            Casin = casin,
+                            Quantity = qtyStr,
+                            Month = monthName,
+                            Year = yearStr,
+                            FileName = fileName,
+                            Reason = "Missing in Catalogue"
+                        });
+                    }
+                    else if (isDeactivated)
+                    {
+                        uiRow["Status"] = "Deactivated ⚠️";
+                        response.Data.MissingOrders.Add(new InvalidOrder
+                        {
+                            Casin = casin,
+                            Quantity = qtyStr,
+                            Month = monthName,
+                            Year = yearStr,
+                            FileName = fileName,
+                            Reason = "Deactivated in Catalogue"
+                        });
+                    }
+                    else if (catalogueItemsDict.TryGetValue(casin, out int itemId))
+                    {
+                        uiRow["Status"] = "Valid ✔";
+                        response.Data.ValidOrders.Add(new ActualOrder
+                        {
+                            ItemCatalogueId = itemId,
+                            Quantity = qty,
+                            Month = monthName,
+                            Year = yearStr,
+                            FileName = fileName,
+                            CreatedById = session.LoggedInUser.Id,
+                            CreatedAt = DateTime.Now
+                        });
+                    }
+                    else
+                    {
+                        // Fallback catch-all
+                        uiRow["Status"] = "Error ❌";
+                    }
+
+                    response.Data.DataTable.Rows.Add(uiRow);
+                }
+
+                // --- DEFERRED ERROR RETURN ---
+                // If there were catalogue issues, we return failure NOW, but with the populated DataTable included
+                if (!valRes.Success)
+                {
+                    response.Success = false;
+                    response.Message = valRes.Message;
+                    return response;
+                }
+
+                if (response.Data.ValidOrders.Count == 0)
+                {
+                    response.Success = false;
+                    response.Message = "No valid orders found in file.";
+                    return response;
+                }
+                #endregion
+
+                #region 5. Save to Database
+                var saveRes = await _orderRepository.SaveOrdersAndUpdateStock(response.Data.ValidOrders);
+
+                if (!saveRes.Success)
+                    return new Response<OrderFileResponse> { Success = false, Message = saveRes.Message };
+
+                // Success!
+                response.Success = true;
+                string ignoreNote = valRes.DeactivatedItems?.Any() == true ? $" (Ignored {valRes.DeactivatedItems.Count} deactivated items)" : "";
+                response.Message = $"Orders uploaded and saved successfully.{ignoreNote}";
+                return response;
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                return new Response<OrderFileResponse> { Success = false, Message = $"Unexpected error: {ex.Message}" };
+            }
+        }
+        public async Task<Response<OrderFileResponse>> _HandleOrderFileAsync(string filePath, WipSession session)
         {
             var response = new Response<OrderFileResponse>
             {
@@ -79,7 +464,17 @@ namespace WIPAT.BLL.Managers
 
                 #region 3. Parse Excel File
                 // Define Requirements
-                string sheetName = "Order"; // Or ExcelSheetNames.Order.ToString()
+
+
+
+                //string sheetName = "Order"; // Or ExcelSheetNames.Order.ToString
+                string sheetName = ConfigurationManager.AppSettings["OrderWorksheetName"];
+                if (string.IsNullOrWhiteSpace(sheetName))
+                {
+                    response.Success = false;
+                    response.Message = "The worksheet name configuration ('OrderWorksheetName') is missing or empty in the App.config file.";
+                    return response;
+                }
                 var requiredCols = new List<string> { "CASIN", "Quantity", "Month", "Year" }; // StockOrderExcelColumns
 
                 // Validate Structure
@@ -248,7 +643,7 @@ namespace WIPAT.BLL.Managers
                 }
 
                 // 3. BATCH FETCH & CACHE
-                var allItemsResponse = await _itemsRepository.GetItemCatalogues();
+                var allItemsResponse = await _itemsRepository.GetActiveItemCatalogues();
                 var allDbItems = (allItemsResponse.Success && allItemsResponse.Data != null) ? allItemsResponse.Data : new List<ItemCatalogue>();
                 var itemsCache = allDbItems.GroupBy(x => x.Casin).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 

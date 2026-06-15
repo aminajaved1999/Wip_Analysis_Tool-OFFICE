@@ -6,12 +6,9 @@ using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using WIPAT.BLL;
 using WIPAT.BLL.Interfaces;
-using WIPAT.DAL;
 using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Enum;
@@ -23,7 +20,6 @@ namespace WIPAT
     public partial class CalculateWIPForm : Form
     {
         #region Fields & Dependencies
-
         private readonly WipSession _session;
         private readonly Action<string, StatusType> _setStatus;
 
@@ -38,65 +34,38 @@ namespace WIPAT
         private DataTable FinalDataTable;
         private DataTable StockDataTable;
 
-        // Cached preview window so it isn’t disposed when switching steps
         private Form _wipFormCached;
         private BusyOverlayHelper _busyHelper;
 
-        // Let MainForm know when Step 2 is completed
         public event Action CalculationCompleted;
-
         #endregion
 
-        #region Constructor & Load
-
-        public CalculateWIPForm(WipSession session, 
-            Action<string, StatusType> setStatus, 
+        #region Constructor & Initialization
+        public CalculateWIPForm(WipSession session,
+            Action<string, StatusType> setStatus,
             IWipManager wipManager,
             IWipRepository wipRepository,
             IStockRepository stockRepository,
-            INewWorkingWipManager newWorkingWipManager
-            )
+            INewWorkingWipManager newWorkingWipManager)
         {
             InitializeComponent();
-
-            // --- THEME UPDATE START ---
-            this.BackColor = UITheme.BackgroundCanvas;
-
-            // Make cards white
-            pnlHeader.BackColor = UITheme.SurfaceWhite;
-            pnlWipTypeCard.BackColor = UITheme.SurfaceWhite;
-            pnlOptionsCard.BackColor = UITheme.SurfaceWhite;
-
-            // Apply colors to Labels
-            lblTitle.ForeColor = UITheme.TextDark;
-            lblWipTypeHeader.ForeColor = UITheme.PrimaryBlue;
-            lblOptionsHeader.ForeColor = UITheme.PrimaryBlue;
-
-            // Apply colors to Buttons
-            UITheme.ApplyButtonTheme(btnReviewWIP, isPrimary: true);
-            UITheme.ApplyButtonTheme(btnApproveWIP, isPrimary: false);
-            // --- THEME UPDATE END ---
+            ApplyTheme();
 
             _session = session;
             _setStatus = setStatus;
 
-            // Initialize Managers
             _stockRepository = stockRepository;
             _wipManager = wipManager;
             _wipRepository = wipRepository;
             _newWorkingWipManager = newWorkingWipManager;
 
-            // Initialize Helpers
             _busyHelper = new BusyOverlayHelper(this, progressBar1, SetStatusThreadSafe);
 
-            // Wire up Events
             this.FormClosing += NewCalculateWIPForm_FormClosing;
 
-            // Input Validations
             textBoxMOQ.Validating += textBoxMOQ_Validating;
             textBoxPercentage.Validating += textBoxPercentage_Validating;
 
-            // Initial UI State
             textBoxMOQ.Visible = false;
             textBoxMOQ.Enabled = false;
 
@@ -104,8 +73,27 @@ namespace WIPAT
             textBoxPercentage.Enabled = false;
             lblPercentSymbol.Visible = false;
 
-            // Ensure radio button state triggers UI update immediately if set in designer
             if (radioButtonPercentage.Checked) radioButtonPercentage_CheckedChanged(this, EventArgs.Empty);
+        }
+
+        private void ApplyTheme()
+        {
+            UITheme.SetFormIcon(this);
+            this.BackColor = UITheme.BackgroundCanvas;
+
+            pnlHeader.BackColor = UITheme.SurfaceWhite;
+            pnlHeader.ForeColor = UITheme.GridRowText;
+            lblTitle.ForeColor = UITheme.GridRowText;
+
+            pnlWipTypeCard.BackColor = UITheme.SurfaceWhite;
+            pnlOptionsCard.BackColor = UITheme.SurfaceWhite;
+
+            lblWipTypeHeader.ForeColor = UITheme.Upload_Color;
+            lblOptionsHeader.ForeColor = UITheme.Upload_Color;
+
+            UITheme.StyleButton(btnReviewWIP, AppButtonStyle.Calculate);
+            UITheme.StyleButton(btnApproveWIP, AppButtonStyle.ApproveAndSave);
+            SetApproveButtonState(false);
         }
 
         protected override void OnShown(EventArgs e)
@@ -114,48 +102,44 @@ namespace WIPAT
 
             try
             {
-                // Restore selected processing type from session if present
                 if (!string.IsNullOrWhiteSpace(_session.WipProcessingType))
                 {
                     radioButtonSystem.Checked = _session.WipProcessingType == ProcessingWipType.System.ToString();
                     radioButtonPercentage.Checked = _session.WipProcessingType == ProcessingWipType.Percentage.ToString();
                     radioButtonMonthOfSupply.Checked = _session.WipProcessingType == ProcessingWipType.MonthOfSupply.ToString();
+                    radioButtonNewWorking.Checked = _session.WipProcessingType == ProcessingWipType.WipWorking.ToString();
 
-                    // Force UI sync
                     radioButtonPercentage_CheckedChanged(this, EventArgs.Empty);
                 }
 
-                // If a final table already exists (from a previous review), re-show preview & enable Approve
                 if (_session.FinalDataTable != null && _session.FinalDataTable.Rows.Count > 0)
                 {
                     FinalDataTable = _session.FinalDataTable;
                     ShowWipTable(FinalDataTable, _session.TargetMonth);
-                    btnApproveWIP.Enabled = true;
-                    // Style the approved button to look active/ready
-                    btnApproveWIP.BackColor = Color.FromArgb(46, 125, 50);
+                    SetApproveButtonState(true);
                 }
                 else
                 {
-                    btnApproveWIP.Enabled = false;
-                    btnApproveWIP.BackColor = Color.Gray;
+                    SetApproveButtonState(false);
                 }
             }
             catch (Exception ex)
             {
-                SetStatus($"Error while restoring Calculate view: {ex.Message}", StatusType.Error);
+                string errorMsg = $"An unexpected error occurred while restoring the Calculate view: {ex.Message}"
+                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatus(errorMsg, StatusType.Error);
             }
         }
-
         #endregion
 
         #region UI Event Handlers
-
         private void NewCalculateWIPForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
-                this.Hide(); // Keep instance alive for state preservation
+                this.Hide();
             }
         }
 
@@ -201,17 +185,27 @@ namespace WIPAT
             }
         }
 
+        private void SetApproveButtonState(bool isEnabled)
+        {
+            btnApproveWIP.Enabled = isEnabled;
+            if (isEnabled)
+            {
+                UITheme.StyleButton(btnApproveWIP, AppButtonStyle.ApproveAndSave);
+            }
+            else
+            {
+                UITheme.StyleButton(btnApproveWIP, AppButtonStyle.Secondary);
+            }
+        }
         #endregion
 
         #region Logic: Review WIP
-
         private async void btnReviewWIP_Click(object sender, EventArgs e)
         {
             SetStatus(string.Empty, StatusType.Reset);
 
             try
             {
-                // 1. Pre-Flight Checks
                 if (!ValidateSessionAndInputs()) return;
 
                 WipProcessingType = GetSelectedProcessingWipType();
@@ -222,7 +216,6 @@ namespace WIPAT
                         "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
 
-                // 2. Prepare Inputs
                 int? MOQ = null;
                 if (checkBoxMOQ.Checked)
                 {
@@ -234,13 +227,12 @@ namespace WIPAT
                     if (int.TryParse(textBoxPercentage.Text, out int pct)) percentage = pct;
                 }
 
-                // 3. Calculation Process
                 _busyHelper.ShowBusy("Calculating WIP Data...");
-                await Task.Yield(); // Free up UI thread momentarily
+                await Task.Yield();
 
-                // 
-                if (WipProcessingType == ProcessingWipType.NewWorking.ToString())
+                if (WipProcessingType == ProcessingWipType.WipWorking.ToString())
                 {
+                    checkBoxCasePack.Checked = true;
 
                     var tableResponse = await Task.Run(() =>
                                     _newWorkingWipManager.BuildCommonWipDataTable(
@@ -263,26 +255,25 @@ namespace WIPAT
                         return;
                     }
 
-                    // 4. Update State
                     StockDataTable = tableResponse.Data;
                     FinalDataTable = tableResponse.Data;
                 }
                 else
                 {
-                        var tableResponse = await Task.Run(() =>
-                                        _wipManager.BuildCommonWipDataTable(
-                                            _session.AsinList,
-                                            _session.Prev,
-                                            _session.Curr,
-                                            _session.Curr.ForecastingFor,
-                                            _session.WipType,
-                                            _session.ItemCatalogue,
-                                            MOQ,
-                                            checkBoxCasePack.Checked,
-                                            WipProcessingType,
-                                            percentage
-                                        )
-                                    );
+                    var tableResponse = await Task.Run(() =>
+                                    _wipManager.BuildCommonWipDataTable(
+                                        _session.AsinList,
+                                        _session.Prev,
+                                        _session.Curr,
+                                        _session.Curr.ForecastingFor,
+                                        _session.WipType,
+                                        _session.ItemCatalogue,
+                                        MOQ,
+                                        checkBoxCasePack.Checked,
+                                        WipProcessingType,
+                                        percentage
+                                    )
+                                );
 
                     if (!tableResponse.Success)
                     {
@@ -290,42 +281,37 @@ namespace WIPAT
                         return;
                     }
 
-                    // 4. Update State
                     StockDataTable = tableResponse.Data;
                     FinalDataTable = tableResponse.Data;
                 }
-               
 
-                // 5. Show Results
                 _busyHelper.ShowBusy("Rendering Final Table...");
                 ShowWipTable(FinalDataTable, _session.TargetMonth);
 
                 SetStatus("WIP calculated successfully.", StatusType.Success);
-
-                btnApproveWIP.Enabled = true;
-                btnApproveWIP.BackColor = Color.FromArgb(46, 125, 50); // Enable Green Visual
+                SetApproveButtonState(true);
 
                 wipStatus = WipStatus.Reviewed.ToString();
 
-                // Persist state in session
                 _session.FinalDataTable = FinalDataTable;
                 _session.WipProcessingType = WipProcessingType;
                 _session.WipStatus = WipStatus.Reviewed.ToString();
             }
             catch (Exception ex)
             {
-                SetStatus($"Exception during WIP Review: {ex.Message}", StatusType.Error);
+                string errorMsg = $"An unexpected error occurred while reviewing the WIP data: {ex.Message}"
+                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatus(errorMsg, StatusType.Error);
             }
             finally
             {
                 _busyHelper.HideBusy();
             }
         }
-
         #endregion
 
         #region Logic: Approve WIP
-
         private async void btnApproveWIP_Click(object sender, EventArgs e)
         {
             try
@@ -353,7 +339,6 @@ namespace WIPAT
 
                 _busyHelper.ShowBusy("Saving Records to Database...");
 
-                //var saveResponse = await _wipManager.SaveWipRecordsAsync(FinalDataTable, WipProcessingType, wipColName, StockDataTable, _session);
                 var saveResponse = await _newWorkingWipManager.SaveWipRecordsAsync(FinalDataTable, WipProcessingType, wipColName, StockDataTable, _session);
 
                 if (!saveResponse.Success)
@@ -366,7 +351,6 @@ namespace WIPAT
                 wipStatus = WipStatus.Approved.ToString();
                 _session.WipStatus = wipStatus;
 
-                // Notify Main Form
                 CalculationCompleted?.Invoke();
 
                 _busyHelper.ShowBusy("Updating Forecast Grid...");
@@ -374,32 +358,35 @@ namespace WIPAT
                 UpdateCurrentForecastGridWithApprovedWip();
 
                 SetStatus("Success", StatusType.Success);
-
             }
             catch (Exception ex)
             {
-                SetStatus($"Exception during Approval: {ex.Message}", StatusType.Error);
+                string errorMsg = $"An unexpected error occurred while approving the WIP data: {ex.Message}"
+                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatus(errorMsg, StatusType.Error);
             }
             finally
             {
                 _busyHelper.HideBusy();
             }
         }
-
         #endregion
 
         #region Helper Methods
-
         private bool ValidateSessionAndInputs()
         {
-            // Database Checks
-            var checkPrevious = _wipRepository.CheckIfWipCalculated(_session.Prev.Month, _session.Prev.Year);
-            if (checkPrevious.Success)
+            // Only check the previous month if we actually HAVE a previous month
+            if (_session.Prev != null)
             {
-                string msg = $"{checkPrevious.Message}\nCalculate Wip of '{_session.Prev.Month} {_session.Prev.Year}' before calculating {_session.Curr.Month} {_session.Curr.Year}";
-                SetStatus(msg, StatusType.Error);
-                MessageBox.Show(msg, "Sequence Error", MessageBoxButtons.OK, MessageBoxIcon.Stop);
-                return false;
+                var checkPrevious = _wipRepository.CheckIfWipCalculated(_session.Prev.Month, _session.Prev.Year);
+                if (checkPrevious.Success)
+                {
+                    string msg = $"{checkPrevious.Message}\nCalculate Wip of '{_session.Prev.Month} {_session.Prev.Year}' before calculating {_session.Curr.Month} {_session.Curr.Year}";
+                    SetStatus(msg, StatusType.Error);
+                    MessageBox.Show(msg, "Sequence Error", MessageBoxButtons.OK, MessageBoxIcon.Stop);
+                    return false;
+                }
             }
 
             var checkCurrent = _wipRepository.CheckIfWipCalculated(_session.Curr.Month, _session.Curr.Year);
@@ -409,14 +396,12 @@ namespace WIPAT
                 return false;
             }
 
-            // Data Readiness Checks
             if (!TryValidateReadyForCalculation(out var missingMsg, checkBoxCasePack.Checked))
             {
                 SetStatus(missingMsg, StatusType.Error);
                 return false;
             }
 
-            // UI Selection Checks
             if (string.IsNullOrEmpty(GetSelectedProcessingWipType()))
             {
                 SetStatus("Please select a WIP processing type.", StatusType.Error);
@@ -431,7 +416,7 @@ namespace WIPAT
             if (radioButtonMonthOfSupply.Checked) return ProcessingWipType.MonthOfSupply.ToString();
             if (radioButtonPercentage.Checked) return ProcessingWipType.Percentage.ToString();
             if (radioButtonSystem.Checked) return ProcessingWipType.System.ToString();
-            if (radioButtonNewWorking.Checked) return ProcessingWipType.NewWorking.ToString();
+            if (radioButtonNewWorking.Checked) return ProcessingWipType.WipWorking.ToString();
             return string.Empty;
         }
 
@@ -445,11 +430,13 @@ namespace WIPAT
                 return false;
             }
 
-            if (_session.ForecastFiles == null || _session.ForecastFiles.Count < 2)
-                missing.Add("At least 2 forecast files");
+            // Fixed: Now only requires 1 file (the current forecast)
+            if (_session.ForecastFiles == null || _session.ForecastFiles.Count == 0)
+                missing.Add("Current Forecast file");
 
             if (_session.Orders == null) missing.Add("Order file");
-            if (_session.Prev == null) missing.Add("Previous forecast (Prev)");
+
+            // Allow Prev to be null (it's okay if there's no previous timeline data yet)
             if (_session.Curr == null) missing.Add("Current forecast (Curr)");
 
             if (string.IsNullOrWhiteSpace(_session.WipType)) missing.Add("WIP Type selection");
@@ -486,7 +473,6 @@ namespace WIPAT
 
         private void UpdateCurrentForecastGridWithApprovedWip()
         {
-            // Logic to reflect the calculated WIP back onto the main Excel grid view
             try
             {
                 if (_session?.ForecastFiles == null) return;
@@ -500,12 +486,10 @@ namespace WIPAT
 
                 foreach (DataRow row in currentGridDataTable.Rows) updatedTable.ImportRow(row);
 
-                // Match and Update Logic
                 foreach (DataRow sourceRow in newSourceTableForWipValues.Rows)
                 {
                     string cAsin = sourceRow["C-ASIN"]?.ToString()?.Trim();
                     string reviewWip = sourceRow["Review_Wip"]?.ToString()?.Trim();
-                    // Note: In a real scenario, you might want to map specific columns like PO Date/Commitment period for exact matching
 
                     var targetRow = updatedTable.AsEnumerable().FirstOrDefault(r => r["C-ASIN"].ToString() == cAsin);
 
@@ -527,42 +511,39 @@ namespace WIPAT
             }
             catch (Exception ex)
             {
-                SetStatus($"Failed to update current grid: {ex.Message}", StatusType.Warning);
+                string errorMsg = $"An unexpected error occurred while updating the current forecast grid: {ex.Message}"
+                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatus(errorMsg, StatusType.Warning);
             }
         }
-
         #endregion
 
         #region Preview Window Logic (Result Table)
-
         private void ShowWipTable(DataTable stockTable, string targetMonth)
         {
             try
             {
                 if (_wipFormCached == null || _wipFormCached.IsDisposed)
                 {
-                    // Create Form
                     _wipFormCached = new Form
                     {
                         Text = $"Remaining Stock & WIP for {targetMonth}",
                         Width = 1400,
                         Height = 700,
                         StartPosition = FormStartPosition.CenterParent,
-                        Icon = this.Icon
+                        Icon = this.Icon,
+                        BackColor = UITheme.BackgroundCanvas
                     };
 
-                    // Data Grid
                     var dgv = new DataGridView
                     {
                         Dock = DockStyle.Fill,
                         ReadOnly = true,
-                        AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                        AllowUserToOrderColumns = false,
-                        DataSource = stockTable,
-                        AlternatingRowsDefaultCellStyle = { BackColor = Color.WhiteSmoke }
+                        DataSource = stockTable
                     };
+                    UITheme.StyleGrid(dgv);
 
-                    // Coloring Logic
                     dgv.CellFormatting += (s, e) =>
                     {
                         if (e.RowIndex >= 0 && dgv.Columns.Contains("C-ASIN") && e.ColumnIndex == dgv.Columns["C-ASIN"].Index)
@@ -572,20 +553,21 @@ namespace WIPAT
                         }
                     };
 
-                    // Control Panel
-                    var pnlControls = new Panel { Dock = DockStyle.Bottom, Height = 50, Padding = new Padding(10) };
+                    var pnlControls = new Panel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(15), BackColor = UITheme.BackgroundCanvas };
 
-                    // Search
-                    var txtSearch = new TextBox { Width = 200, Dock = DockStyle.Left, Font = new Font("Segoe UI", 10) };
-                    var btnSearch = new Button { Text = "Filter", Dock = DockStyle.Left, Width = 80, FlatStyle = FlatStyle.Flat };
+                    var lblSearch = new Label { Text = "Filter CASIN:", Dock = DockStyle.Left, Width = 100, TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold) };
+                    var txtSearch = new TextBox { Width = 200, Dock = DockStyle.Left, Font = new Font("Segoe UI", 10), BorderStyle = BorderStyle.FixedSingle };
+
+                    var btnSearch = new Button { Text = "Search", Dock = DockStyle.Left, Width = 80, Margin = new Padding(10, 0, 0, 0) };
+                    UITheme.StyleButton(btnSearch, AppButtonStyle.Search);
 
                     btnSearch.Click += (s, e) => {
                         string term = txtSearch.Text.Replace("'", "''");
                         stockTable.DefaultView.RowFilter = string.IsNullOrWhiteSpace(term) ? "" : $"[C-ASIN] LIKE '%{term}%'";
                     };
 
-                    // Export
-                    var btnExport = new Button { Text = "Export to Excel", Dock = DockStyle.Right, Width = 150, FlatStyle = FlatStyle.Flat, BackColor = Color.SeaGreen, ForeColor = Color.White };
+                    var btnExport = new Button { Text = "Export to Excel", Dock = DockStyle.Right, Width = 150 };
+                    UITheme.StyleButton(btnExport, AppButtonStyle.ExportToExcel);
                     btnExport.Click += (s, e) => {
                         using (var sfd = new SaveFileDialog { Filter = "Excel|*.xlsx", FileName = $"WIP_{targetMonth}.xlsx" })
                         {
@@ -596,6 +578,7 @@ namespace WIPAT
                     pnlControls.Controls.Add(btnExport);
                     pnlControls.Controls.Add(btnSearch);
                     pnlControls.Controls.Add(txtSearch);
+                    pnlControls.Controls.Add(lblSearch);
 
                     _wipFormCached.Controls.Add(dgv);
                     _wipFormCached.Controls.Add(pnlControls);
@@ -611,7 +594,10 @@ namespace WIPAT
             }
             catch (Exception ex)
             {
-                SetStatus($"Error showing preview: {ex.Message}", StatusType.Error);
+                string errorMsg = $"An unexpected error occurred while displaying the WIP preview table: {ex.Message}"
+                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatus(errorMsg, StatusType.Error);
             }
         }
 
@@ -631,19 +617,18 @@ namespace WIPAT
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Export Failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                string errorMsg = $"An unexpected error occurred while exporting data to Excel: {ex.Message}"
+                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                MessageBox.Show(errorMsg, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         private Color GenerateColorFromString(string input)
         {
             int hash = Math.Abs(input.GetHashCode());
-            // Generate pastel colors
             return Color.FromArgb((hash % 50) + 200, ((hash / 256) % 50) + 200, ((hash / 65536) % 50) + 200);
         }
-
         #endregion
     }
-
-   
 }

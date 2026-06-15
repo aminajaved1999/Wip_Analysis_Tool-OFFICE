@@ -18,6 +18,11 @@ namespace WIPAT.Entities.Dto
         public string ProjectionYear { get; set; }
         public string ForecastFor { get; set; }
         public bool IsWipAlreadyCalculated { get; set; }
+        public bool IsContinueWithInactiveItems { get; set; }
+        public List<string> MissingItems { get; set; } = new List<string>();
+        public List<string> DeactivatedItems { get; set; } = new List<string>();
+        public DataTable ProblemItemsTable { get; set; } = new DataTable();
+
         public ForecastMaster Forecast { get; set; }
 
         // NEW: UI Components

@@ -50,16 +50,23 @@ namespace WIPAT
             var stockManager = new StockManager(stockRepo, itemsRepo, excelService);
             var orderManager = new OrderManager(orderRepo, itemsRepo, excelService);
             var wipManager = new WipManager(wipRepo, forecastRepo, stockRepo, session);
-            var NewWipManager = new  NewWorkingWipManager(wipRepo, forecastRepo, stockRepo, session);
+            var NewWipManager = new NewWorkingWipManager(wipRepo, forecastRepo, stockRepo, session);
 
             #endregion
 
-            #region 3. Splash Screen
+            #region 3. Splash Screen & Background DB Warmup
 
             using (SplashScreen splash = new SplashScreen())
             {
                 splash.Show();
                 Application.DoEvents(); // Force UI paint
+
+                // --- THE FIX: WAKE UP ENTITY FRAMEWORK IN THE BACKGROUND ---
+                // This prevents the massive lag spike when opening the first form!
+                Task.Run(() =>
+                {
+                    try { dbContext.Database.Initialize(false); } catch { }
+                });
 
                 // Simulate initialization work or loading assets
                 for (int i = 0; i < 40; i++)

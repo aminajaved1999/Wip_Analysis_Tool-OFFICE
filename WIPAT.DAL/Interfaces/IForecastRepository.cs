@@ -11,7 +11,7 @@ namespace WIPAT.DAL.Interfaces
 {
     public interface IForecastRepository
     {
-        Response<string> SaveForecastDataToDatabase(ForecastFileData forecastData, bool isFirstFile);
+        Response<string> SaveForecastDataToDatabase(ForecastFileData forecastData, bool isFirstFile, bool IsDeactivatedItemsIgnored);
         Response<ForecastFileData> IsFileAlreadyImported(string fileName);
         bool IsProjectionAlreadyExists(string month, string year);
         bool IsWipAlreadyCalculated(string month, string year);

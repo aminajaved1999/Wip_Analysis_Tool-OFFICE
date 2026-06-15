@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace WIPAT.Entities
 {
-    public class WipMaster 
+    public class WipMaster : BaseEntity
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int Id { get; set; }
@@ -23,10 +23,5 @@ namespace WIPAT.Entities
         public bool IsWipModifiedByUser { get; set; }
         // Navigation
         public virtual ICollection<WipDetail> Details { get; set; }
-        //
-        public DateTime CreatedAt { get; set; }
-        public int CreatedById { get; set; }
-        public DateTime? UpdatedAt { get; set; }
-        public int? UpdatedById { get; set; }
     }
 }

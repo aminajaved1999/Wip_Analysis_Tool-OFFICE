@@ -21,6 +21,7 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
+using WIPAT.Helpers;
 
 namespace WIPAT
 {
@@ -44,7 +45,6 @@ namespace WIPAT
         private Label[] steps;
         private Form activeForm = null;
         #endregion UI Colors and Step Management
-
 
         #region Fields and Session Management
         //session
@@ -84,6 +84,7 @@ namespace WIPAT
              )
         {
             InitializeComponent();
+            UITheme.SetFormIcon(this);
 
             // Repositories / session
             _session.LoggedInUser = loggedInUser ?? throw new ArgumentNullException(nameof(loggedInUser));
@@ -92,14 +93,12 @@ namespace WIPAT
             _forecastManager = forecastManager;
             _stockManager = stockManager;
             _orderManager = orderManager;
-            //_importManager = importManager;
             _excelService = excelService;
             _wipManager = wipManager;
             _itemsRepository = itemsRepository;
             _stockRepository = stockRepository;
             _wipRepository = wipRepository;
             _newWorkingWipManager = newWorkingWipManager;
-
 
             // Stepper wires
             steps = new[] { step1, step2, step3 };
@@ -108,18 +107,26 @@ namespace WIPAT
             // Base styling
             stepperPanel.BackColor = StepDefaultBack;
 
-            // Declarative routing → no switch forest
-            _routes[Step.Upload] = () => new UploadForm(
-                _session,
-                _excelService,
-                _forecastManager,
-                _orderManager,
-                new ForecastRepository(new WIPATContext()),
-                new OrderRepository(new WIPATContext(), _session), 
-                _itemsRepository,
-                SetStatus
-            );
+            // Declarative routing → LAZY LOADING instructions
+            _routes[Step.Upload] = () =>
+            {
+                var uploadForm = new UploadForm(
+                    _session,
+                    _excelService,
+                    _forecastManager,
+                    _orderManager,
+                    new ForecastRepository(new WIPATContext()),
+                    new OrderRepository(new WIPATContext(), _session),
+                    _itemsRepository,
+                    SetStatus
+                );
 
+                // THE FIX: Listen to the Upload form so the Main form knows when files are ready!
+                uploadForm.InputsChanged -= UpdateStepperEnabledState; // Prevent double-firing
+                uploadForm.InputsChanged += UpdateStepperEnabledState;
+
+                return uploadForm;
+            };
 
             // 2. Calculate Form needs WipManager and Repos
             _routes[Step.Calculate] = () =>
@@ -137,16 +144,20 @@ namespace WIPAT
                 calc.CalculationCompleted += OnStep2Completed;
                 return calc;
             };
-            _routes[Step.Export] = () => new ExportForm(_session, SetStatus);
+
+            _routes[Step.Export] = () => new ExportForm(_session, SetStatus, _session.LoggedInUser);
 
             // Ensure cached children are disposed on exit
             this.FormClosing += MainForm_FormClosing;
 
-            // First paint
-            GoTo(Step.Upload);
-            UpdateStepperEnabledState();
+            // --- THE FIX: WAIT UNTIL FORM LOADS TO RENDER CHILD COMPONENTS ---
+            this.Load += MainForm_Load;
         }
-
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+            // First paint (Only executed AFTER the main screen appears)
+            GoTo(Step.Upload);
+        }
         #endregion Constructor
 
         #region Step Validation and Gatekeeping
@@ -155,6 +166,9 @@ namespace WIPAT
             reason = string.Empty;
             switch (step)
             {
+                case Step.Upload:
+                    return true;
+
                 case Step.Calculate:
                     var (isReady, message) = IsReadyForCalc();
                     if (!isReady)
@@ -200,11 +214,9 @@ namespace WIPAT
                 return (false, "Internal error: session is null.");
             }
 
-            // Check for missing forecast files
+            // REFACTORED: Now only checks for 1 forecast file
             if (_session.ForecastFiles == null || _session.ForecastFiles.Count == 0)
-                missing.Add("Forecast files (none loaded)");
-            else if (_session.ForecastFiles.Count < 2)
-                missing.Add($"At least 2 forecast files (currently {_session.ForecastFiles.Count})");
+                missing.Add("Current Forecast file (none loaded)");
 
             // Ensure order file is loaded
             if (_session.Orders == null)
@@ -255,22 +267,29 @@ namespace WIPAT
         }
         private void GoTo(Step desired)
         {
+            bool isAllowed = CanEnter(desired, out var reason);
+
             // Check gate; if blocked, show reason and smart fallback
-            if (!CanEnter(desired, out var reason))
+            if (!isAllowed)
             {
                 SetStatus(string.IsNullOrWhiteSpace(reason) ? "Not allowed yet." : reason, StatusType.Warning);
                 desired = desired == Step.Export ? Step.Calculate : Step.Upload;
             }
 
-            // Update visuals
+            // 1. Update enabled tooltips and states FIRST
+            UpdateStepperEnabledState();
+
+            // 2. Update visuals (Colors the active step blue)
             SetActiveStep((int)desired);
-            statusLabel.Text = $"Step {(int)desired}: {steps[(int)desired - 1].Text}";
+
+            // 3. Clear the status safely (removes stuck yellow background)
+            if (isAllowed)
+            {
+                SetStatus($"Step {(int)desired}: {steps[(int)desired - 1].Text}", StatusType.Transparent);
+            }
 
             // Show form
             ShowForm(desired);
-
-            // Update enabled tooltips for other steps
-            UpdateStepperEnabledState();
         }
         private void ShowForm(Step step)
         {
@@ -328,55 +347,20 @@ namespace WIPAT
             step1.Enabled = true;
             step1.Cursor = Cursors.Hand;
             _stepperTip.SetToolTip(step1, "Proceed to Upload");
-            step1.BackColor = StepDefaultBack;
-            step1.ForeColor = StepDefaultFore;
 
-            // Step 2: Calculate - Only enabled if Step 1 is done and other conditions are met
+            // Step 2: Calculate - Let CanEnter do all the thinking
             bool canCalculate = CanEnter(Step.Calculate, out var calcReason);
-            if (canCalculate)
-            {
-                step2.Enabled = canCalculate;
-                step2.Cursor = canCalculate ? Cursors.Hand : Cursors.No;
-                _stepperTip.SetToolTip(step2, canCalculate ? "Proceed to Calculate WIP" : (string.IsNullOrWhiteSpace(calcReason) ? "Not ready" : calcReason));
 
-            }
-            if (!IsUploadDone || (_session.ForecastFiles?.Any() ?? false) == false || _session.Orders == null || _session.CommitmentPeriod <= 0)
-            {
-                canCalculate = false;
-                calcReason = "Complete Step 1 (Upload) first.";
-            }
+            step2.Enabled = canCalculate;
+            step2.Cursor = canCalculate ? Cursors.Hand : Cursors.No;
+            _stepperTip.SetToolTip(step2, canCalculate ? "Proceed to Calculate WIP" : (string.IsNullOrWhiteSpace(calcReason) ? "Not ready" : calcReason));
 
-
-            // Visual updates for Step 2
-            if (canCalculate)
-            {
-                step2.BackColor = StepDefaultBack;
-                step2.ForeColor = StepDefaultFore;
-            }
-            else
-            {
-                step2.BackColor = StepDefaultBack;
-                step2.ForeColor = Color.Gray;
-            }
-
-            // Step 3: Export - Only enabled if Step 2 is done and other conditions are met
+            // Step 3: Export 
             bool canExport = CanEnter(Step.Export, out var exportReason);
 
             step3.Enabled = canExport;
             step3.Cursor = canExport ? Cursors.Hand : Cursors.No;
             _stepperTip.SetToolTip(step3, canExport ? "Proceed to Export" : (string.IsNullOrWhiteSpace(exportReason) ? "Not ready" : exportReason));
-
-            // Visual updates for Step 3
-            if (canExport)
-            {
-                step3.BackColor = StepDefaultBack;
-                step3.ForeColor = StepDefaultFore;
-            }
-            else
-            {
-                step3.BackColor = StepDefaultBack;
-                step3.ForeColor = Color.Gray;
-            }
         }
 
         // ==== Calc done / reset hooks (called by children) ====
@@ -385,6 +369,7 @@ namespace WIPAT
             IsCalculateDone = true;
             UpdateStepperEnabledState();
             SetStatus("WIP calculation completed. You can proceed to Export.", StatusType.Success);
+
         }
 
         /// <summary>
@@ -443,747 +428,41 @@ namespace WIPAT
         }
         #endregion status 
 
-        #region items
+        #region Items Catalogue Management
 
-        //Show Items Catalogue
         private async void ItemsCatalogueMenuItem_Click(object sender, EventArgs e)
         {
-            Response<List<ItemCatalogue>> resItemsCatalogue = await _itemsRepository.GetItemCatalogues();
-            if (!resItemsCatalogue.Success)
+            using (var catalogueForm = new ItemsCatalogueForm(_itemsRepository, _stockRepository, _excelService))
             {
-                MessageBox.Show("Failed to load item catalogue:\n" + resItemsCatalogue.Message,
-                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
+                catalogueForm.ShowDialog();
+
+                try
+                {
+                    var res = await _itemsRepository.GetActiveItemCatalogues();
+                    if (res.Success)
+                    {
+                        _session.ItemCatalogue = res.Data;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to update session item list: {ex.Message}",
+                                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
-
-            _session.ItemCatalogue = resItemsCatalogue.Data;
-
-            var filtered = resItemsCatalogue.Data
-             .Select(x => new
-             {
-                 x.Casin,
-                 x.Model,
-                 x.Description,
-                 x.ColorName,
-                 x.Size,
-                 x.PCPK,
-                 x.CasePackQty
-             })
-             .ToList();
-
-
-
-            var form = new Form
-            {
-                Text = "Item Catalogue",
-                Width = 800,
-                Height = 500,
-                StartPosition = FormStartPosition.CenterParent
-            };
-
-            var dgv = new DataGridView
-            {
-                Dock = DockStyle.Fill,
-                ReadOnly = true,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                AllowUserToOrderColumns = false,
-                DataSource = filtered
-            };
-
-            form.Controls.Add(dgv);
-            form.ShowDialog();
         }
 
-        // ADD ITEMS + Opening Stock
-        private void addItemsToCatalogueToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            var form = new Form
-            {
-                Text = "Import Item Catalogue",
-                Width = 800,
-                Height = 500,
-                StartPosition = FormStartPosition.CenterParent
-            };
+        #endregion Items Catalogue Management
 
-            var btnSelectFile = new Button
-            {
-                Text = "Select Excel File",
-                Dock = DockStyle.Top,
-                Height = 40
-            };
-
-            var dgv = new DataGridView
-            {
-                Dock = DockStyle.Fill,
-                ReadOnly = true,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
-            };
-
-            var btnSave = new Button
-            {
-                Text = "Save to Database",
-                Dock = DockStyle.Bottom,
-                Height = 40,
-                Enabled = false
-            };
-
-            form.Controls.Add(dgv);
-            form.Controls.Add(btnSave);
-            form.Controls.Add(btnSelectFile);
-
-            // Access
-            DataTable catalogue = new DataTable();
-            DataTable stock = new DataTable();
-
-            // File selection + load
-            btnSelectFile.Click += async (s, ev) =>
-            {
-                try
-                {
-                    OpenFileDialog ofd = new OpenFileDialog
-                    {
-                        Filter = "Excel Files|*.xlsx;*.xls",
-                        Title = "Select Excel File"
-                    };
-
-                    if (ofd.ShowDialog() == DialogResult.OK)
-                    {
-                        string filePath = ofd.FileName;
-
-                        var resItemCatalogues = await _excelService.ReadCatalogDataTableFromExcel(filePath);
-                        if (!resItemCatalogues.Success)
-                        {
-                            MessageBox.Show($"Error: {resItemCatalogues.Message}", "Import Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            return;
-                        }
-
-                        // Access
-                        catalogue = resItemCatalogues.Data[0];
-                        stock = resItemCatalogues.Data[1];
-
-
-                        dgv.DataSource = catalogue;
-                        btnSave.Enabled = true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error: " + ex.Message, "Import Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            };
-
-            // Save to DB
-            btnSave.Click += (s, ev) =>
-            {
-                try
-                {
-
-                    if (catalogue == null && catalogue.Rows.Count <= 0)
-                    {
-                        MessageBox.Show("No data for ItemCatalogues to save.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return;
-                    }
-
-                    if (stock == null && stock.Rows.Count <= 0)
-                    {
-                        MessageBox.Show("No data for InitialStock to save.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return;
-                    }
-
-
-                    var resBulkInsert = _stockRepository.BulkInsertCatalogueImport(catalogue, stock);
-                    if (!resBulkInsert.Success)
-                    {
-                        MessageBox.Show($"Error: {resBulkInsert.Message}", "Save Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-
-                    }
-                    else
-                    {
-                        MessageBox.Show($"{resBulkInsert.Message}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
-
-                    form.Close();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error: " + ex.Message, "Save Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            };
-
-            form.ShowDialog();
-        }
-
-        #endregion items
-
-        #region Wip
-        //show calculted wip
+        #region Calulated WIP Management
         private void calculatedWipsToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            // Clear previous dropdown items to avoid duplicates
-            calculatedWipsToolStripMenuItem.DropDownItems.Clear();
-
-            try
+            using (var form = new CalculatedWipsForm(_wipRepository, _excelService, _session.LoggedInUser.Id))
             {
-
-                #region Load Calculated WIPs 
-                // Get the list of forecasts that have calculated WIPs
-                var forecastsWithCalculatedWipResponse = _wipRepository.GetForecastsWithCalculatedWip();
-                #endregion Load Calculated WIPs
-
-                if (forecastsWithCalculatedWipResponse.Success && forecastsWithCalculatedWipResponse.Data != null && forecastsWithCalculatedWipResponse.Data.Any())
-                {
-                    int GetMonthNumber(string monthName)
-                    {
-                        if (string.IsNullOrEmpty(monthName))
-                            return 13;
-
-                        switch (monthName.ToLower())
-                        {
-                            case "january": return 1;
-                            case "february": return 2;
-                            case "march": return 3;
-                            case "april": return 4;
-                            case "may": return 5;
-                            case "june": return 6;
-                            case "july": return 7;
-                            case "august": return 8;
-                            case "september": return 9;
-                            case "october": return 10;
-                            case "november": return 11;
-                            case "december": return 12;
-                            default: return 13; // unknown month last
-                        }
-                    }
-
-                    var sortedForecasts = forecastsWithCalculatedWipResponse.Data
-                        .OrderBy(f => f.Year)
-                        .ThenBy(f => GetMonthNumber(f.Month))
-                        .ToList();
-
-                    #region Build dropdown items for each period
-                    // Loop through each forecast record
-                    foreach (var forecast in sortedForecasts)
-                    {
-                        var period = $"{forecast.Month} {forecast.Year}";
-                        // Create a new submenu item for this period
-                        var forecastItem = new ToolStripMenuItem(period);
-                        // Add item to dropdown
-                        calculatedWipsToolStripMenuItem.DropDownItems.Add(forecastItem);
-
-                        #region On click, fetch & display WIP details for the period
-                        forecastItem.Click += async (s, args) =>
-                        {
-                            try
-                            {
-                                // Fetch WIP details for the selected period
-                                Response<List<WipDetail>> detailsResponse = await _wipRepository.GetWipDetailsByPeriodAsync(forecast.Month, forecast.Year);
-
-                                if (detailsResponse.Success && detailsResponse.Data != null)
-                                {
-                                    if (detailsResponse.Data.Any())
-                                    {
-                                        var selectedData = detailsResponse.Data
-                                                            .Select(d => new { CASIN = d.CASIN, WipQuantity = d.WipQuantity })
-                                                            .ToList();
-
-                                        #region Build UI (Form + Grid + Export Button)
-                                        // Create a new form to display data
-                                        var form = new Form
-                                        {
-                                            Text = $"WIP Details for {period}",
-                                            Width = 1000,
-                                            Height = 600,
-                                            StartPosition = FormStartPosition.CenterParent
-                                        };
-
-                                        // Create DataGridView
-                                        var dgv = new DataGridView
-                                        {
-                                            Dock = DockStyle.Fill,
-                                            ReadOnly = true,
-                                            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                                            AllowUserToOrderColumns = false,
-                                            DataSource = selectedData
-                                        };
-
-                                        // Add Export button
-                                        var exportButton = new Button
-                                        {
-                                            Text = "Export to Excel",
-                                            Dock = DockStyle.Top,
-                                            Height = 35
-                                        };
-                                        #endregion
-
-                                        #region Export handler
-                                        // Export button event
-                                        exportButton.Click += (s2, e2) =>
-                                        {
-                                            try
-                                            {
-                                                string fileName = $"{period}-Wip.xlsx";
-                                                string worksheetName = $"{period}-Wip";
-                                                _excelService.ExportWipDataToExcel(selectedData, fileName, worksheetName);
-                                            }
-                                            catch (Exception ex)
-                                            {
-                                                MessageBox.Show($"An error occurred while exporting to Excel:\n{ex.Message}",
-                                                                "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                            }
-                                        };
-                                        #endregion
-
-                                        #region Show form
-
-                                        form.Controls.Add(dgv);
-                                        form.Controls.Add(exportButton);
-                                        form.ShowDialog();
-                                        #endregion
-
-                                    }
-                                    else
-                                    {
-                                        MessageBox.Show(detailsResponse.Message ?? "No records found.", "No Data",
-                                                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                                    }
-                                }
-                                else
-                                {
-                                    MessageBox.Show($"Failed to load WIP details:\n{detailsResponse.Message}",
-                                                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show($"An unexpected error occurred while fetching details:\n{ex.Message}",
-                                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            }
-                        };
-                        #endregion On click, fetch & display WIP details for the period
-                    }
-                    #endregion Build dropdown items for each period
-
-                }
-                else
-                {
-                    MessageBox.Show(
-                        $"Error: {forecastsWithCalculatedWipResponse.Message ?? "No calculated WIP data found"}",
-                        "Load Failed", MessageBoxButtons.OK, MessageBoxIcon.Error
-                    );
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"An unexpected error occurred while loading calculated WIPs:\n{ex.Message}",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error
-                );
-            }
-        }
-
-        //edit - calculated wip
-        private void editCalculatedWipsToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            //Reset dropdown 
-            editCalculatedWipsToolStripMenuItem.DropDownItems.Clear();
-
-            try
-            {
-                #region FETCH: Forecast periods with calculated WIP
-                var forecastsWithCalculatedWipResponse = _wipRepository.GetForecastsWithCalculatedWip();
-                #endregion
-
-                #region  Validate repository response
-                if (!(forecastsWithCalculatedWipResponse.Success
-                      && forecastsWithCalculatedWipResponse.Data != null
-                      && forecastsWithCalculatedWipResponse.Data.Any()))
-                {
-                    MessageBox.Show(
-                        $"Error: {forecastsWithCalculatedWipResponse.Message ?? "No calculated WIP data found"}",
-                        "Load Failed",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error
-                    );
-                    return;
-                }
-                #endregion
-
-                #region Month name → month number
-                int GetMonthNumber(string monthName)
-                {
-                    if (string.IsNullOrWhiteSpace(monthName)) return 13;
-
-                    switch (monthName.Trim().ToLowerInvariant())
-                    {
-                        case "january": return 1;
-                        case "february": return 2;
-                        case "march": return 3;
-                        case "april": return 4;
-                        case "may": return 5;
-                        case "june": return 6;
-                        case "july": return 7;
-                        case "august": return 8;
-                        case "september": return 9;
-                        case "october": return 10;
-                        case "november": return 11;
-                        case "december": return 12;
-                        default: return 13; // Unknown -> push to end
-                    }
-                }
-                #endregion
-
-                #region SORT: Order periods by Year then Month
-                var orderedForecasts = forecastsWithCalculatedWipResponse.Data
-                    .OrderBy(f => f.Year)
-                    .ThenBy(f => GetMonthNumber(f.Month))
-                    .ToList();
-                #endregion
-
-                #region UI: Build dropdown items (Upload & Update per period)
-                foreach (var f in orderedForecasts)
-                {
-                    // Copy to locals to avoid closure-capture bugs
-                    var periodMonth = f.Month;
-                    var periodYear = f.Year;
-                    var periodLabel = $"{periodMonth} {periodYear}";
-
-                    var periodMenuItem = new ToolStripMenuItem(periodLabel);
-                    editCalculatedWipsToolStripMenuItem.DropDownItems.Add(periodMenuItem);
-
-                    #region HANDLER: Upload Excel → Validate → Confirm → Apply bulk update
-                    periodMenuItem.Click += async (s, args2) =>
-                    {
-                        try
-                        {
-                            #region FILE_PICKER: Choose Excel file with updates
-                            using (var ofd = new OpenFileDialog
-                            {
-                                Title = $"Upload updated WIP for {periodLabel}",
-                                Filter = "Excel Files (*.xlsx)|*.xlsx",
-                                Multiselect = false
-                            })
-                            {
-                                if (ofd.ShowDialog() != DialogResult.OK) return;
-                                #endregion
-
-                                #region PARSE_VALIDATE: Read and validate Excel (CASIN, WipQuantity)
-                                var parseResult = _excelService.ReadEditWipExcel(ofd.FileName);
-
-                                if (!parseResult.Success)
-                                {
-                                    MessageBox.Show(
-                                        $"Validation failed:\n{parseResult.Message}",
-                                        "Invalid File",
-                                        MessageBoxButtons.OK,
-                                        MessageBoxIcon.Warning
-                                    );
-                                    return;
-                                }
-
-                                var updates = parseResult.Data;
-                                if (updates == null || updates.Count == 0)
-                                {
-                                    MessageBox.Show(
-                                        "No valid rows found in the Excel file.",
-                                        "Nothing to Update",
-                                        MessageBoxButtons.OK,
-                                        MessageBoxIcon.Information
-                                    );
-                                    return;
-                                }
-                                #endregion
-
-                                #region CONFIRM: Ask user before applying updates
-                                var confirm = MessageBox.Show(
-                                    $"You are about to update {updates.Count} WIP entr{(updates.Count == 1 ? "y" : "ies")} for {periodLabel}.\n\nProceed?",
-                                    "Confirm Update",
-                                    MessageBoxButtons.YesNo,
-                                    MessageBoxIcon.Question
-                                );
-                                if (confirm != DialogResult.Yes) return;
-                                #endregion
-
-                                #region APPLY_UPDATES: Bulk update via repository
-                                var updateResponse = await _wipRepository.AddUserWipQtyForPeriodAsync(periodMonth, periodYear, updates);
-                                #endregion
-
-                                #region Show result and refresh WIP details
-                                if (updateResponse.Success)
-                                {
-                                    // Re-fetch the updated WIP details and display them
-                                    var refreshedDetails = await _wipRepository.GetWipDetailsByPeriodAsync(periodMonth, periodYear);
-                                    if (refreshedDetails.Success && refreshedDetails.Data != null && refreshedDetails.Data.Any())
-                                    {
-                                        var updatedData = refreshedDetails.Data
-                                            .Select(d => new { d.CASIN, d.WipQuantity, d.UserWipQty })
-                                            .ToList();
-
-                                        // Call the reusable method to show updated details
-                                        //ShowWipDetailsForm(periodLabel, updatedData);
-                                        ShowWipApprovalForm(periodMonth, periodYear, refreshedDetails.Data);
-                                    }
-                                    else
-                                    {
-                                        MessageBox.Show("No WIP records found after update.", "No Data",
-                                                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                                    }
-                                }
-                                else
-                                {
-                                    MessageBox.Show(
-                                        $"Failed to update WIP for {periodLabel}:\n{updateResponse.Message}",
-                                        "Update Failed",
-                                        MessageBoxButtons.OK,
-                                        MessageBoxIcon.Error
-                                    );
-                                }
-                                #endregion
-
-                                #region RESULT: Notify user of outcome
-                                if (updateResponse.Success)
-                                {
-                                    MessageBox.Show(
-                                        $"{(string.IsNullOrWhiteSpace(updateResponse.Message) ? "" : updateResponse.Message)}",
-                                        "Update Successful",
-                                        MessageBoxButtons.OK,
-                                        MessageBoxIcon.Information
-                                    );
-                                }
-                                else
-                                {
-                                    MessageBox.Show(
-                                        $"Failed to update WIP for {periodLabel}:\n{updateResponse.Message}",
-                                        "Update Failed",
-                                        MessageBoxButtons.OK,
-                                        MessageBoxIcon.Error
-                                    );
-                                }
-                                #endregion
-                            }
-                        }
-                        catch (Exception exInner)
-                        {
-                            #region ERROR: Unexpected failure during update flow
-                            MessageBox.Show(
-                                $"An unexpected error occurred while updating WIP:\n{exInner.Message}",
-                                "Error",
-                                MessageBoxButtons.OK,
-                                MessageBoxIcon.Error
-                            );
-                            #endregion
-                        }
-                    };
-                    #endregion
-                }
-                #endregion
-
-
-
-            }
-            catch (Exception ex)
-            {
-                #region ERROR: Unexpected failure while building edit menu
-                MessageBox.Show(
-                    $"An unexpected error occurred while loading calculated WIPs:\n{ex.Message}",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-                #endregion
-            }
-        }
-
-        private void ShowWipApprovalForm(string month, string year, List<WipDetail> details)
-        {
-            try
-            {
-                // Build a DataTable for easy binding & selection
-                var table = new DataTable();
-                table.Columns.Add("CASIN", typeof(string));
-                table.Columns.Add("CurrentWip", typeof(int));
-                table.Columns.Add("ProposedWip", typeof(int));
-                table.Columns.Add("Delta", typeof(int));
-
-                foreach (var d in details)
-                {
-                    int current = d.WipQuantity.Value;
-                    int proposed = d.UserWipQty.Value;
-                    int delta = proposed - current;
-
-                    table.Rows.Add(d.CASIN, current, proposed, delta);
-                }
-
-                var form = new Form
-                {
-                    Text = $"Approve WIP for {month}{year}",
-                    Width = 500,
-                    Height = 650,
-                    StartPosition = FormStartPosition.CenterParent
-                };
-
-                var dgv = new DataGridView
-                {
-                    Dock = DockStyle.Fill,
-                    ReadOnly = true,
-                    AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                    AllowUserToOrderColumns = false,
-                    SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                    MultiSelect = true,
-                    DataSource = table,
-                };
-
-                // Top panel with actions
-                var panel = new FlowLayoutPanel
-                {
-                    Dock = DockStyle.Top,
-                    Height = 48,
-                    FlowDirection = FlowDirection.LeftToRight,
-                    Padding = new Padding(8)
-                };
-
-                var btnApproveAll = new Button { Text = "Approve All", Width = 110, Height = 32 };
-                panel.Controls.Add(btnApproveAll);
-
-                // Adding search controls
-                var lblSearch = new Label { Text = "Search CASIN:", Width = 100, TextAlign = ContentAlignment.MiddleRight };
-                var txtSearch = new TextBox { Width = 150 };
-                var btnSearch = new Button { Text = "Search", Width = 75, Height = 32 };
-
-                panel.Controls.Add(lblSearch);
-                panel.Controls.Add(txtSearch);
-                panel.Controls.Add(btnSearch);
-
-                #region approve
-                // Approve helper
-                async Task Approve(Func<DataRow, bool> rowFilter)
-                {
-                    try
-                    {
-                        // Build updates from rows where Proposed != Current
-                        var updates = new List<WipDetail>();
-                        foreach (DataRow r in table.Rows)
-                        {
-                            if (!rowFilter(r)) continue;
-
-                            string casin = r.Field<string>("CASIN");
-                            int current = r.Field<int>("CurrentWip");
-                            int proposed = r.Field<int>("ProposedWip");
-                            if (current == proposed) continue;
-
-                            updates.Add(new WipDetail
-                            {
-                                CASIN = casin,
-                                UserWipQty = proposed   // repository will set WipQuantity = UserWipQty
-                            });
-                        }
-
-                        if (updates.Count == 0)
-                        {
-                            MessageBox.Show("Nothing to approve (no changes selected).", "Info",
-                                MessageBoxButtons.OK, MessageBoxIcon.Information);
-                            return;
-                        }
-
-                        var confirm = MessageBox.Show(
-                            $"Approve {updates.Count} entr{(updates.Count == 1 ? "y" : "ies")} for {month}{year}?\n" +
-                            "This will set WipQuantity = ProposedWip (UserWipQty).",
-                            "Confirm Approval",
-                            MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-
-                        if (confirm != DialogResult.Yes) return;
-
-                        var resp = await _wipRepository.UpdateWipForPeriodAsync(month, year, updates);
-                        if (resp.Success)
-                        {
-                            MessageBox.Show(string.IsNullOrWhiteSpace(resp.Message)
-                                ? "Approval applied successfully."
-                                : resp.Message, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                            // Refresh the grid after approval
-                            var refreshed = await _wipRepository.GetWipDetailsByPeriodAsync(month, year);
-                            if (refreshed.Success && refreshed.Data != null)
-                            {
-                                // Update rows with new currents (WipQuantity)
-                                var map = refreshed.Data.ToDictionary(x => x.CASIN, x => x, StringComparer.OrdinalIgnoreCase);
-                                foreach (DataRow r in table.Rows)
-                                {
-                                    var casin = r.Field<string>("CASIN");
-                                    if (map.TryGetValue(casin, out var w))
-                                    {
-                                        r.SetField("CurrentWip", w.WipQuantity);
-                                        r.SetField("Delta", r.Field<int>("ProposedWip") - w.WipQuantity);
-                                    }
-                                }
-                                dgv.Refresh();
-                            }
-                        }
-                        else
-                        {
-                            MessageBox.Show($"Approval failed:\n{resp.Message}", "Error",
-                                MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"Unexpected error while approving:\n{ex.Message}", "Error",
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
-
-                // Approve All (only those that actually change)
-                btnApproveAll.Click += async (s, e) =>
-                {
-                    await Approve(r =>
-                    {
-                        int cur = r.Field<int>("CurrentWip");
-                        int prop = r.Field<int>("ProposedWip");
-                        return cur != prop;
-                    });
-                };
-                #endregion approve
-
-                // Search Button Clicked
-                btnSearch.Click += (s, e) =>
-                {
-                    string searchValue = txtSearch.Text.Trim();
-                    if (string.IsNullOrEmpty(searchValue))
-                    {
-                        // Reset the filter if search is empty
-                        dgv.DataSource = table;
-                    }
-                    else
-                    {
-                        var filteredRows = table.AsEnumerable()
-                                                 .Where(r => r.Field<string>("CASIN")
-                                                            .IndexOf(searchValue, StringComparison.OrdinalIgnoreCase) >= 0)
-                                                 .CopyToDataTable();
-
-                        if (filteredRows.Rows.Count == 0)
-                        {
-                            MessageBox.Show("No CASIN found matching the search criteria.", "Search Result",
-                                            MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        }
-
-                        dgv.DataSource = filteredRows;
-                    }
-                };
-
-                #region show
-                form.Controls.Add(dgv);
-                form.Controls.Add(panel);
                 form.ShowDialog();
-                #endregion show
-
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"An unexpected error occurred while displaying approval UI:\n{ex.Message}",
-                                 "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        #endregion wip
-
+        #endregion Calulated WIP Management
     }
 }
-

@@ -32,6 +32,7 @@ namespace WIPAT.Entities
         public string WipProcessingType { get; set; }      // MonthOfSupply / Percentage / System
 
         public User LoggedInUser { get; set; }
+        public bool IsContinueWithInactiveItems { get; set; }
 
 
     }

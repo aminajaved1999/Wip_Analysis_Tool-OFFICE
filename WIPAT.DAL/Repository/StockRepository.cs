@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
+using WIPAT.Entities.Enum;
 
 namespace WIPAT.DAL
 {
@@ -101,7 +102,8 @@ namespace WIPAT.DAL
             }
         }
 
-        public async Task<Response<bool>> UpdateStockQtyInStockTable(DataTable stockDataTable, string wipColName, string month, string year)
+        //unoptimised
+        public async Task<Response<bool>> _UpdateStockQtyInStockTable(DataTable stockDataTable, string wipColName, string month, string year)
         {
             var response = new Response<bool>();
 
@@ -259,6 +261,181 @@ namespace WIPAT.DAL
             }
         }
 
+        //optimized
+        public async Task<Response<bool>> UpdateStockQtyInStockTable(DataTable stockDataTable, string wipColName, string month, string year)
+        {
+            var response = new Response<bool>();
+
+            // Date parsing logic
+            if (!DateTime.TryParse($"01 {month} {year}", out DateTime currentDate))
+            {
+                return new Response<bool> { Success = false, Message = "Invalid Month/Year format." };
+            }
+
+            DateTime previousDate = currentDate.AddMonths(-1);
+            string previousMonth = previousDate.ToString("MMMM");
+
+            // Required columns
+            string casinCol = "C-ASIN";
+            string stockCol = "Initial_Stock";
+            string orderCol = "Actual_Order";
+            string productionCol = $"Wip ({previousMonth})";
+            string commitmentPeriodCol = $"CommitmentPeriod ({month})";
+
+            try
+            {
+                #region 1. Input Validation
+                if (stockDataTable == null || stockDataTable.Rows.Count == 0)
+                {
+                    return new Response<bool> { Success = false, Message = "The input data table is null or empty." };
+                }
+
+                var requiredColumns = new[] { casinCol, stockCol, orderCol, productionCol, commitmentPeriodCol };
+                foreach (var col in requiredColumns)
+                {
+                    if (!stockDataTable.Columns.Contains(col))
+                    {
+                        return new Response<bool> { Success = false, Message = $"Missing required column '{col}'." };
+                    }
+                }
+                #endregion
+
+                #region 2. Lightning Fast In-Memory Calculations (O(N) Complexity)
+                // Pre-calculate target stocks in a dictionary to completely eliminate DataTable.Select()
+                var targetStocks = new Dictionary<string, int>();
+
+                var groupedByCasin = stockDataTable.AsEnumerable()
+                    .Where(r => r[casinCol] != DBNull.Value && !string.IsNullOrWhiteSpace(r[casinCol].ToString()))
+                    .GroupBy(r => r[casinCol].ToString());
+
+                foreach (var group in groupedByCasin)
+                {
+                    string casin = group.Key;
+
+                    // Find Period 0 row, or fallback to Period 1 row (Exact mirror of your original logic)
+                    var row = group.FirstOrDefault(r => r[commitmentPeriodCol]?.ToString() == "0")
+                           ?? group.FirstOrDefault(r => r[commitmentPeriodCol]?.ToString() == "1");
+
+                    if (row == null)
+                    {
+                        return new Response<bool> { Success = false, Message = $"No matching rows found for Casin '{casin}'." };
+                    }
+
+                    var orderValue = row[orderCol]?.ToString();
+                    var productionValue = row[productionCol]?.ToString();
+                    var stockValue = row[stockCol]?.ToString();
+
+                    if (!int.TryParse(orderValue, out int orderQty) || !int.TryParse(stockValue, out int stockQty))
+                    {
+                        return new Response<bool> { Success = false, Message = $"Invalid numeric data for Casin '{casin}'." };
+                    }
+
+                    if (!int.TryParse(productionValue, out int productionQty))
+                    {
+                        productionQty = 0; // Default to 0 if missing/invalid
+                    }
+
+                    int newStock = (productionQty + stockQty) - orderQty;
+                    if (newStock < 0) newStock = 0;
+
+                    targetStocks[casin] = newStock;
+                }
+                #endregion
+
+                #region 3. Bulk Database Operations
+                using (var transaction = _context.Database.BeginTransaction())
+                {
+                    try
+                    {
+                        // Disable change tracking temporarily to drastically speed up memory operations
+                        _context.Configuration.AutoDetectChangesEnabled = false;
+
+                        var casinsToFetch = targetStocks.Keys.ToList();
+                        var stocksToUpdate = new List<InitialStock>();
+
+                        // Fetch records in chunks of 1000 to prevent SQL "Too Many Parameters" limits
+                        int chunkSize = 1000;
+                        for (int i = 0; i < casinsToFetch.Count; i += chunkSize)
+                        {
+                            var chunk = casinsToFetch.Skip(i).Take(chunkSize).ToList();
+
+                            var stocks = await _context.InitialStocks
+                                .Include(s => s.ItemCatalogue)
+                                .Where(s => chunk.Contains(s.ItemCatalogue.Casin))
+                                .ToListAsync();
+
+                            stocksToUpdate.AddRange(stocks);
+                        }
+
+                        // Validation: Did we find every InitialStock record we were looking for?
+                        var foundCasins = stocksToUpdate.Select(s => s.ItemCatalogue.Casin).ToHashSet();
+                        var missingCasins = casinsToFetch.Where(c => !foundCasins.Contains(c)).ToList();
+
+                        if (missingCasins.Any())
+                        {
+                            transaction.Rollback();
+                            // Only display up to 5 missing CASINs in the error to avoid massive error string bloat
+                            string missingStr = string.Join(", ", missingCasins.Take(5)) + (missingCasins.Count > 5 ? "..." : "");
+                            return new Response<bool> { Success = false, Message = $"Initial stock not found for: {missingStr}" };
+                        }
+
+                        // Apply updates to the tracked entities
+                        foreach (var stock in stocksToUpdate)
+                        {
+                            string casin = stock.ItemCatalogue.Casin;
+
+                            stock.OpeningStock = targetStocks[casin];
+                            stock.UpdatedAt = DateTime.Now;
+                            stock.UpdatedById = _session.LoggedInUser.Id;
+
+                            _context.Entry(stock).State = EntityState.Modified;
+                        }
+
+                        // A SINGLE SaveChanges call for everything!
+                        int isSaved = await _context.SaveChangesAsync();
+
+                        if (isSaved <= 0 && targetStocks.Count > 0)
+                        {
+                            transaction.Rollback();
+                            return new Response<bool> { Success = false, Message = "Failed to apply bulk update to the database." };
+                        }
+
+                        transaction.Commit();
+
+                        return new Response<bool>
+                        {
+                            Success = true,
+                            Data = true,
+                            Message = "Stock quantities updated successfully."
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        transaction.Rollback();
+                        return new Response<bool>
+                        {
+                            Success = false,
+                            Message = $"An error occurred: {ex.Message}."
+                        };
+                    }
+                    finally
+                    {
+                        // Always restore Entity Framework's default state tracking behavior
+                        _context.Configuration.AutoDetectChangesEnabled = true;
+                    }
+                }
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                return new Response<bool>
+                {
+                    Success = false,
+                    Message = $"Unexpected error: {ex.Message}."
+                };
+            }
+        }
+
         public int GetInitialStockValue(int itemCatalogueId)
         {
             var stock = _context.InitialStocks.FirstOrDefault(s => s.ItemCatalogueId == itemCatalogueId);
@@ -272,7 +449,7 @@ namespace WIPAT.DAL
         }
 
 
-        #region bulk insert item catalogue along with stock
+        #region bulk insert active item catalogue along with stock
         public Response<bool> BulkInsertCatalogueImport(DataTable dtItemCatalogues, DataTable dtInitialStock)
         {
             var response = new Response<bool>();
@@ -340,87 +517,75 @@ namespace WIPAT.DAL
         }
 
         //// Step 1: Bulk Insert → Items Catalogue
-        public Response<bool> xBulkInsertToItemsCatalogue(DataTable dt, SqlConnection conn, SqlTransaction transaction)
-        {
-            var response = new Response<bool>();
-
-
-            try
-            {
-                using (SqlBulkCopy bulkCopy = new SqlBulkCopy(conn, SqlBulkCopyOptions.KeepIdentity, transaction))
-                {
-                    bulkCopy.DestinationTableName = "dbo.ItemCatalogues";
-
-                    // Column mappings (Excel → DB)
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.CAsin, "Casin");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.Model, "Model");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.Description, "Description");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.ColorName, "ColorName");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.Size, "Size");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.PCPK, "PCPK");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.CasePackQty, "CasePackQty");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.CreatedAt, "CreatedAt");
-                    bulkCopy.ColumnMappings.Add(AllColumnNames.CreatedById, "CreatedById");
-
-                    // Perform the bulk insert within the transaction
-                    bulkCopy.WriteToServer(dt);
-
-                    // Add success result
-                    response.Success = true;
-                    response.Message = "Bulk insert completed successfully.";
-                }
-            }
-            catch (SqlException sqlEx)
-            {
-                // Handle unique constraint violation
-                if (sqlEx.Number == 2627 || sqlEx.Number == 2601)
-                {
-                    response.Success = false;
-                    response.Message = "Some items already exist in the catalogue. Please check your file for duplicates.";
-                }
-                else
-                {
-                    response.Success = false;
-                    response.Message = "A database error occurred while inserting items catalogue.";
-                }
-            }
-
-            catch (Exception ex)
-            {
-                // Add failure result
-                response.Success = false;
-                response.Message = $"Error in BulkInsertToItemsCatalogue: {ex.Message}";
-            }
-
-            return response;
-        }
+        //// Step 1: Bulk Insert → Items Catalogue
         public Response<bool> BulkInsertToItemsCatalogue(DataTable dt, SqlConnection conn, SqlTransaction transaction)
         {
             var response = new Response<bool>();
 
             try
             {
-                // 1. Ensure IsActive exists in the DataTable
-                if (!dt.Columns.Contains("IsActive"))
+                // 1. Fetch all existing Casins from the database to check for duplicates
+                var existingCasins = new HashSet<string>();
+                string query = "SELECT Casin FROM dbo.ItemCatalogues";
+                using (var cmd = new SqlCommand(query, conn, transaction))
                 {
-                    dt.Columns.Add("IsActive", typeof(bool));
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            existingCasins.Add(reader["Casin"].ToString());
+                        }
+                    }
                 }
 
-                // 2. Populate the data
+                // 2. Identify duplicates
+                var duplicateCasins = new List<string>();
+                var seenInFile = new HashSet<string>(); // To check if the file itself has duplicates
+
                 foreach (DataRow row in dt.Rows)
                 {
-                    row["IsActive"] = true;
+                    string currentCasin = row[AllColumnNames.CAsin].ToString();
+
+                    // Check if it exists in DB OR if it's a duplicate within the file itself
+                    if (existingCasins.Contains(currentCasin) || seenInFile.Contains(currentCasin))
+                    {
+                        duplicateCasins.Add(currentCasin);
+                    }
+                    else
+                    {
+                        seenInFile.Add(currentCasin);
+                    }
                 }
 
+                // If duplicates found, return them specifically
+                if (duplicateCasins.Any())
+                {
+                    response.Success = false;
+                    response.Message = $"Duplicate Casins found: {string.Join(", ", duplicateCasins.Distinct())}";
+                    return response;
+                }
+
+                // --- Prepare DataTable for Bulk Insert ---
+                // Ensure IsActive column exists
+                if (!dt.Columns.Contains("IsActive"))
+                    dt.Columns.Add("IsActive", typeof(bool));
+
+                // Ensure ItemStatus column exists
+                if (!dt.Columns.Contains("ItemStatus"))
+                    dt.Columns.Add("ItemStatus", typeof(string));
+
+                // Set default values for new rows
+                foreach (DataRow row in dt.Rows)
+                {
+                    row["IsActive"] = true; // default
+                    row["ItemStatus"] = ItemStatus.Valid.ToString(); // default
+                }
+
+                // --- Bulk Insert ---
                 using (SqlBulkCopy bulkCopy = new SqlBulkCopy(conn, SqlBulkCopyOptions.KeepIdentity, transaction))
                 {
                     bulkCopy.DestinationTableName = "dbo.ItemCatalogues";
 
-                    // Clear any existing mappings to avoid duplicates if the method is retried
-                    bulkCopy.ColumnMappings.Clear();
-
-                    // 3. Define Mappings (Source Column Name, Destination Column Name)
-                    // IMPORTANT: Ensure the second parameter matches your SQL Table column names EXACTLY
                     bulkCopy.ColumnMappings.Add(AllColumnNames.CAsin, "Casin");
                     bulkCopy.ColumnMappings.Add(AllColumnNames.Model, "Model");
                     bulkCopy.ColumnMappings.Add(AllColumnNames.Description, "Description");
@@ -430,46 +595,27 @@ namespace WIPAT.DAL
                     bulkCopy.ColumnMappings.Add(AllColumnNames.CasePackQty, "CasePackQty");
                     bulkCopy.ColumnMappings.Add(AllColumnNames.CreatedAt, "CreatedAt");
                     bulkCopy.ColumnMappings.Add(AllColumnNames.CreatedById, "CreatedById");
+                    bulkCopy.ColumnMappings.Add(AllColumnNames.Notes, "Notes");
 
-                    // Matches 'public bool isActive' in your entity (assuming SQL column is isActive)
-                    bulkCopy.ColumnMappings.Add("IsActive", "isActive");
-
-                    // 4. Validate mappings before execution to catch typos early
-                    foreach (SqlBulkCopyColumnMapping map in bulkCopy.ColumnMappings)
-                    {
-                        if (!dt.Columns.Contains(map.SourceColumn))
-                        {
-                            throw new Exception($"The source column '{map.SourceColumn}' was not found in the DataTable. Check your Excel/CSV headers.");
-                        }
-                    }
+                    // Add the new columns
+                    bulkCopy.ColumnMappings.Add("IsActive", "IsActive");
+                    bulkCopy.ColumnMappings.Add("ItemStatus", "ItemStatus");
 
                     bulkCopy.WriteToServer(dt);
+                }
 
-                    response.Success = true;
-                    response.Message = "Bulk insert completed successfully.";
-                }
-            }
-            catch (SqlException sqlEx)
-            {
-                if (sqlEx.Number == 2627 || sqlEx.Number == 2601)
-                {
-                    response.Success = false;
-                    response.Message = "Some items already exist. Please check for duplicate Casins.";
-                }
-                else
-                {
-                    response.Success = false;
-                    response.Message = $"Database Error: {sqlEx.Message}";
-                }
+                response.Success = true;
+                response.Message = "Bulk insert completed successfully.";
             }
             catch (Exception ex)
             {
                 response.Success = false;
-                response.Message = $"Mapping Error: {ex.Message}";
+                response.Message = $"Error: {ex.Message}";
             }
 
             return response;
         }
+
 
         // Step 2: Map ItemCatalogueIds to InitialStock (after inserting ItemCatalogues)
         public Response<DataTable> MapItemCatalogueIds(DataTable dtItemCatalogues, DataTable dtInitialStock, SqlConnection conn, SqlTransaction transaction)
@@ -605,7 +751,9 @@ namespace WIPAT.DAL
 
             return response;
         }
-     
-        #endregion bulk insert item catalogue along with stock
+
+        #endregion bulk insert active item catalogue along with stock
+
+
     }
 }

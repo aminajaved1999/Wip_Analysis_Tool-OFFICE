@@ -13,19 +13,23 @@ namespace WIPAT.BLL.Interfaces
        
         #region  validate excel file
         Task<Response<string>> ValidateItemCatalogueExcelFile(string filePath);
-        Task<Response<bool>> ValidateExcelFile(string filePath, string fileType, string requiredWorkSheetName, List<string> requiredExcelColumns);
+        Task<Response<bool>> ValidateExcelFile(string filePath, string fileType, string requiredWorkSheetName, List<string> requiredExcelColumns,
+            string requiredMonth = null,
+            string requiredYear = null
+            );
         Response<bool> ValidateColumns(string filePath, string sheetName, List<string> requiredColumns);
         #endregion  validate excel file
 
         #region Read Excel
         Response<DataTable> ReadExcelToDataTable(string filePath, string sheetName, List<string> columnsToRead = null);
-        Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath);
+        //Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath);
+        Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath, bool isUpdate = false);
         Response<List<WipDetail>> ReadEditWipExcel(string filePath);
         #endregion read excel
 
         #region Get Datatable
-        Task<Response<DataTable>> GetItemCataloguesDataTableFromExcel(string filePath, string requiredWorkSheetName);
-        Task<Response<DataTable>> GetStockDataTableFromExcel(string filePath, string requiredWorkSheetName);
+        Task<Response<DataTable>> GetItemCataloguesDataTableFromExcel(string filePath, string requiredWorkSheetName, bool isUpdate = false);
+        Task<Response<DataTable>> GetStockDataTableFromExcel(string filePath, string requiredWorkSheetName, bool isUpdate = false);
         #endregion Get Datatable
 
         #region Export to Excel

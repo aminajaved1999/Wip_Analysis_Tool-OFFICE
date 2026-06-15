@@ -17,7 +17,6 @@ using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
 using WIPAT.Helpers;
-using static System.Collections.Specialized.BitVector32;
 
 namespace WIPAT
 {
@@ -25,32 +24,25 @@ namespace WIPAT
     {
         public event Action InputsChanged;
 
-        #region State & Dependencies
+        #region Fields & Dependencies
         private readonly WipSession _session;
         private readonly Action<string, StatusType> _setStatus;
         private readonly BusyOverlayHelper _busyHelper;
 
         private List<ForecastFileData> _forecastFiles;
 
-        // Injected Managers (BLL)
         private readonly IExcelService _excelSerice;
         private readonly IForecastManager _forecastManager;
         private readonly IOrderManager _orderManager;
-        // Repositories
         private readonly IForecastRepository _forecastRepository;
         private readonly IOrderRepository _orderRepository;
         private readonly IItemsRepository _itemsRepository;
 
         private int _commitmentPeriod = 0;
         private bool _orderUploaded = false;
-
-        // Custom Search Boxes
-        private TextBox _txtSearchF1_Real;
-        private TextBox _txtSearchF2_Real;
-        private TextBox _txtSearchOrder_Real;
         #endregion
 
-        #region Constructor
+        #region Constructor & Initialization
         public UploadForm(
                     WipSession session,
                     IExcelService excelSerice,
@@ -60,9 +52,7 @@ namespace WIPAT
                     IOrderRepository orderRepository,
                     IItemsRepository itemsRepository,
                     Action<string, StatusType> setStatus)
-
         {
-            // Validate dependencies
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _excelSerice = excelSerice ?? throw new ArgumentNullException(nameof(excelSerice));
             _forecastManager = forecastManager ?? throw new ArgumentNullException(nameof(forecastManager));
@@ -72,187 +62,140 @@ namespace WIPAT
             _itemsRepository = itemsRepository ?? throw new ArgumentNullException(nameof(itemsRepository));
             _setStatus = setStatus;
 
-            // Initialize State
             _forecastFiles = new List<ForecastFileData>();
 
             InitializeComponent();
-            _session = session;
-            _setStatus = setStatus;
-
-            // --- THEME UPDATE START ---
-            this.BackColor = UITheme.BackgroundCanvas; // The gray background
-
-            // Setup Tabs background
-            tabForecast.BackColor = UITheme.BackgroundCanvas;
-            tabOrder.BackColor = UITheme.BackgroundCanvas;
-
-            // Create "Card" effect for grids by making their wrappers White
-            pnlGrid1Wrapper.BackColor = UITheme.SurfaceWhite;
-            pnlGrid2Wrapper.BackColor = UITheme.SurfaceWhite;
-            // Note: If pnlGrid1Wrapper doesn't have Padding in designer, add: pnlGrid1Wrapper.Padding = new Padding(1);
-
-            // Apply Button Themes
-            UITheme.ApplyButtonTheme(btnBrowseForecast);
-            UITheme.ApplyButtonTheme(btnBrowseOrder);
-            UITheme.ApplyButtonTheme(btnExportErrors, isPrimary: false); // Green button
-                                                                         // --- THEME UPDATE END ---
-
-            SetupModernSearchBars(); // We will update this method next
+            ApplyTheme();
+            SetupModernSearchBars();
 
             _busyHelper = new BusyOverlayHelper(this, progressBarTop, SetStatusThreadSafe);
-            
+
             _commitmentPeriod = GetCommitmentPeriodFromConfig();
             _session.CommitmentPeriod = _commitmentPeriod;
-
-            ApplyModernStyleToGrids(); // We will update this method next
-
-            this.FormClosing += (s, e) =>
-            {
-                if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; this.Hide(); }
-            };
-
         }
 
-        #endregion Constructor
-
-        #region 1. UI Setup & Styling
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-
-            // 1. Load the Dropdown Data from DB
             LoadForecastDropdown();
             LoadOrderDropdown();
-
-            // 2. Restore any existing session state
             RebindFromSession();
+        }
+
+        private void UploadForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                this.Hide();
+            }
+        }
+        #endregion
+
+        #region UI Setup & Styling
+        private void ApplyTheme()
+        {
+            this.BackColor = UITheme.BackgroundCanvas;
+            tabForecast.BackColor = UITheme.BackgroundCanvas;
+            tabOrder.BackColor = UITheme.BackgroundCanvas;
+
+            pnlGrid1Wrapper.BackColor = UITheme.SurfaceWhite;
+            pnlOrderGridWrapper.BackColor = UITheme.SurfaceWhite;
+
+            UITheme.SetFormIcon(this);
+            UITheme.StyleButton(btnBrowseForecast, AppButtonStyle.Upload);
+            UITheme.StyleButton(btnBrowseOrder, AppButtonStyle.Upload);
+            UITheme.StyleButton(btnExportForecastErrors, AppButtonStyle.Secondary);
+            UITheme.StyleButton(btnExportOrderErrors, AppButtonStyle.Secondary);
+            UITheme.StyleButton(btnMarkInvalid, AppButtonStyle.Danger);
+
+            UITheme.StyleGrid(dgvForecast1, true);
+            UITheme.StyleGrid(dgvOrder, true);
+            UITheme.StyleGrid(dgvForecastErrors, false);
+            UITheme.StyleGrid(dgvOrderErrors, false);
         }
 
         private void SetupModernSearchBars()
         {
-            // --- GRID 1 (Left Aligned) ---
-            lblForecast1.AutoSize = true;
-            lblForecast1.Dock = DockStyle.Left;
-            lblForecast1.TextAlign = ContentAlignment.MiddleLeft;
+            BindSearchBarVisuals(pnlSearch1, txtSearchF1_Real, lblIcon1);
+            BindSearchBarVisuals(pnlSearchOrder, txtSearchOrder_Real, lblIconOrder);
 
-            Panel pnlSearch1 = CreateModernSearchBar(out _txtSearchF1_Real);
-            pnlSearch1.Dock = DockStyle.Left;
-            pnlSearch1.Width = 300;
-            pnlSearch1.Padding = new Padding(20, 7, 0, 5);
-
-            this.pnlHeader1.Controls.Clear();
-            this.pnlHeader1.Controls.Add(pnlSearch1);
-            this.pnlHeader1.Controls.Add(lblForecast1);
-
-            _txtSearchF1_Real.TextChanged += (s, e) => FilterGrid(dgvForecast1, _txtSearchF1_Real.Text);
-
-            // --- GRID 2 (Left Aligned) ---
-            lblForecast2.AutoSize = true;
-            lblForecast2.Dock = DockStyle.Left;
-            lblForecast2.TextAlign = ContentAlignment.MiddleLeft;
-
-            Panel pnlSearch2 = CreateModernSearchBar(out _txtSearchF2_Real);
-            pnlSearch2.Dock = DockStyle.Left;
-            pnlSearch2.Width = 300;
-            pnlSearch2.Padding = new Padding(20, 7, 0, 5);
-
-            this.pnlHeader2.Controls.Clear();
-            this.pnlHeader2.Controls.Add(pnlSearch2);
-            this.pnlHeader2.Controls.Add(lblForecast2);
-
-            _txtSearchF2_Real.TextChanged += (s, e) => FilterGrid(dgvForecast2, _txtSearchF2_Real.Text);
-
-            // --- ORDER GRID ---
-            Panel pnlSearchOrder = CreateModernSearchBar(out _txtSearchOrder_Real);
-
-            // Move Search Bar to the right to make room for the new Dropdown
-            pnlSearchOrder.Location = new Point(380, 13);
-
-            this.pnlOrderHeader.Controls.Add(pnlSearchOrder);
-            _txtSearchOrder_Real.TextChanged += (s, e) => FilterGrid(dgvOrder, _txtSearchOrder_Real.Text);
+            txtSearchF1_Real.TextChanged += (s, e) => FilterGrid(dgvForecast1, txtSearchF1_Real.Text);
+            txtSearchOrder_Real.TextChanged += (s, e) => FilterGrid(dgvOrder, txtSearchOrder_Real.Text);
         }
 
-        private void ApplyModernStyleToGrids()
+        private void BindSearchBarVisuals(Panel container, TextBox txt, Label lblIcon)
         {
-            // Use the central theme logic
-            UITheme.StyleGrid(dgvForecast1, true);
-            UITheme.StyleGrid(dgvForecast2, true);
-            UITheme.StyleGrid(dgvOrder, true);
-            UITheme.StyleGrid(dgvOrderErrors, false);
-        }
-
-        private Panel CreateModernSearchBar(out TextBox refTextBox)
-        {
-            Panel container = new Panel();
-            container.Size = new Size(240, 32);
-
-            // UPDATE: Use BackgroundCanvas so it blends with the gray form
-            container.BackColor = UITheme.BackgroundCanvas;
-            container.Padding = new Padding(10, 7, 10, 5);
-            container.Cursor = Cursors.IBeam;
-
             container.Paint += (s, e) =>
             {
-                // Draw a simple border
                 ControlPaint.DrawBorder(e.Graphics, container.ClientRectangle,
-                    Color.Silver, 1, ButtonBorderStyle.Solid, // Left
-                    Color.Silver, 1, ButtonBorderStyle.Solid, // Top
-                    Color.Silver, 1, ButtonBorderStyle.Solid, // Right
-                    Color.Silver, 1, ButtonBorderStyle.Solid  // Bottom
+                    UITheme.GridBorder, 1, ButtonBorderStyle.Solid,
+                    UITheme.GridBorder, 1, ButtonBorderStyle.Solid,
+                    UITheme.GridBorder, 1, ButtonBorderStyle.Solid,
+                    UITheme.GridBorder, 1, ButtonBorderStyle.Solid
                 );
             };
 
-            Label lblIcon = new Label();
-            lblIcon.Text = "🔍";
-            lblIcon.Font = new Font("Segoe UI Symbol", 9);
-            lblIcon.AutoSize = true;
-            lblIcon.Dock = DockStyle.Left;
-            lblIcon.ForeColor = Color.Gray;
-            lblIcon.BackColor = Color.Transparent;
-            lblIcon.Padding = new Padding(0, 2, 0, 0);
-
-            TextBox txt = new TextBox();
-            txt.BorderStyle = BorderStyle.None;
-            // UPDATE: Match container background
-            txt.BackColor = UITheme.BackgroundCanvas;
-            txt.Dock = DockStyle.Fill;
-            txt.Font = new Font("Segoe UI", 9.5f);
-            txt.ForeColor = Color.Gray;
-            txt.Text = "Search C-ASIN...";
-
             txt.GotFocus += (s, e) =>
             {
-                if (txt.Text == "Search C-ASIN...") { txt.Text = ""; txt.ForeColor = Color.Black; }
-                // On Focus: Turn White to look active
+                if (txt.Text.StartsWith("Search")) { txt.Text = ""; txt.ForeColor = UITheme.GridRowText; }
                 container.BackColor = UITheme.SurfaceWhite;
                 txt.BackColor = UITheme.SurfaceWhite;
             };
+
             txt.LostFocus += (s, e) =>
             {
-                if (string.IsNullOrWhiteSpace(txt.Text)) { txt.Text = "Search C-ASIN..."; txt.ForeColor = Color.Gray; }
-                // Lost Focus: Go back to Gray
+                if (string.IsNullOrWhiteSpace(txt.Text)) { txt.Text = "Search C-ASIN..."; txt.ForeColor = UITheme.TextSecondaryColor; }
                 container.BackColor = UITheme.BackgroundCanvas;
                 txt.BackColor = UITheme.BackgroundCanvas;
             };
 
             container.Click += (s, e) => txt.Focus();
             lblIcon.Click += (s, e) => txt.Focus();
-
-            container.Controls.Add(txt);
-            container.Controls.Add(lblIcon);
-
-            refTextBox = txt;
-            return container;
         }
 
+        private void tabControlMain_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            TabPage tabPage = tabControlMain.TabPages[e.Index];
+            Rectangle tabBounds = tabControlMain.GetTabRect(e.Index);
+            bool isSelected = (e.State == DrawItemState.Selected);
+
+            Color backColor = isSelected ? UITheme.SurfaceWhite : UITheme.BackgroundCanvas;
+            Color textColor = isSelected ? UITheme.MainColor : UITheme.TextSecondaryColor;
+            Color bottomLineColor = isSelected ? UITheme.MainColor : UITheme.GridBorder;
+
+            using (SolidBrush brush = new SolidBrush(backColor))
+            {
+                g.FillRectangle(brush, tabBounds);
+            }
+
+            Font font = new Font("Segoe UI", 11F, isSelected ? FontStyle.Bold : FontStyle.Regular);
+            TextRenderer.DrawText(g, tabPage.Text, font, tabBounds, textColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+            int lineThickness = isSelected ? 3 : 1;
+            using (Pen pen = new Pen(bottomLineColor, lineThickness))
+            {
+                g.DrawLine(pen, tabBounds.Left, tabBounds.Bottom - 1, tabBounds.Right, tabBounds.Bottom - 1);
+            }
+        }
+
+        private void ConfigureErrorGrid(DataGridView dgv)
+        {
+            dgv.ReadOnly = false;
+
+            foreach (DataGridViewColumn col in dgv.Columns)
+            {
+                if (col.Name != "chkSelect")
+                {
+                    col.ReadOnly = true;
+                }
+            }
+        }
         #endregion
 
-        #region 2. Unified Logic (Dropdowns & Browsing)
-
-        // ---------------------------------------------------------
-        // FORECAST LOGIC
-        // ---------------------------------------------------------
-
+        #region Forecast Logic
         private void LoadForecastDropdown()
         {
             try
@@ -265,156 +208,78 @@ namespace WIPAT
                 }
                 cmbDbForecasts.DataSource = items;
             }
-            catch { /* Handle safely */ }
+            catch (Exception ex)
+            {
+                string msg = $"An unexpected error occurred while loading the forecast dropdown: {ex.Message}"
+                             + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                             + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatusThreadSafe(msg, StatusType.Error);
+            }
         }
 
         private async void cmbDbForecasts_SelectionChangeCommitted(object sender, EventArgs e)
         {
-            string sel = cmbDbForecasts.SelectedItem?.ToString();
-            if (string.IsNullOrEmpty(sel) || sel.StartsWith("Load")) return;
-
-            var parts = sel.Split('_');
-            string selectedMonth = parts[0];
-            string selectedYear = parts[1];
-
-
-            // Scenario A: Rolling Forward (User has Month 1 & 2, selects Month 3)
-            if (_forecastFiles.Count == 2)
+            try
             {
-                var f1 = _forecastFiles[0];
-                var f2 = _forecastFiles[1];
+                string sel = cmbDbForecasts.SelectedItem?.ToString();
+                if (string.IsNullOrEmpty(sel) || sel.StartsWith("Load")) return;
 
-                bool isConsecutiveToSecond = IsConsecutiveMonth(f2, selectedMonth, selectedYear);
-                bool isReplacingSecond = IsConsecutiveMonth(f1, selectedMonth, selectedYear);
+                var parts = sel.Split('_');
+                string selectedMonth = parts[0];
+                string selectedYear = parts[1];
 
-                if (isConsecutiveToSecond)
-                {
-                    // Action: Roll Forward
-                    bool confirm = ShowSequenceConfirmation(
-                        title: "Timeline Update (Roll Forward)",
-                        mainMessage: $"You are loading {selectedMonth} {selectedYear}.",
-                        subMessage: $"This follows the current timeline.\nTo proceed, {f1.ProjectionMonth} {f1.ProjectionYear} will be removed to make room.",
-                        actionButton: "Update Timeline");
-
-                    if (!confirm) { ResetForecastDropdown(); return; }
-
-                    // Logic handled in Load: We will remove index 0 after successful load
-                }
-                else if (isReplacingSecond)
-                {
-                    // Action: Replace Last
-                    bool confirm = ShowSequenceConfirmation(
-                        title: "Replace Forecast",
-                        mainMessage: $"You are replacing {f2.ProjectionMonth} with {selectedMonth}.",
-                        subMessage: $"This will maintain the start date of {f1.ProjectionMonth}.",
-                        actionButton: "Replace File");
-
-                    if (!confirm) { ResetForecastDropdown(); return; }
-
-                    _forecastFiles.RemoveAt(1); // Remove immediately to make room
-                }
-                else
-                {
-                    ShowErrorDialog("Sequence Error",
-                        $"The selected file ({selectedMonth}) does not fit the current timeline sequence.");
-                    ResetForecastDropdown();
-                    return;
-                }
+                await LoadForecastDataCommonAsync(selectedMonth, selectedYear);
+                ResetForecastDropdown();
             }
-            // Scenario B: User has Month 1, selects random Month (Non-consecutive)
-            else if (_forecastFiles.Count == 1)
+            catch (Exception ex)
             {
-                var existing = _forecastFiles[0];
-                if (!IsConsecutiveMonth(existing, selectedMonth, selectedYear))
-                {
-                    bool confirm = ShowSequenceConfirmation(
-                       title: "New Timeline Start",
-                       mainMessage: $"Start new timeline with {selectedMonth} {selectedYear}?",
-                       subMessage: $"The existing file ({existing.ProjectionMonth}) is not consecutive and will be cleared.",
-                       actionButton: "Start New");
-
-                    if (confirm)
-                    {
-                        ClearForecastSession();
-                    }
-                    else
-                    {
-                        ResetForecastDropdown();
-                        return;
-                    }
-                }
+                string msg = $"An unexpected error occurred while processing the selected dropdown forecast: {ex.Message}"
+                             + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                             + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatusThreadSafe(msg, StatusType.Error);
+                ResetForecastDropdown();
             }
-
-            // --- LOAD DATA ---
-            await LoadForecastDataCommonAsync(selectedMonth, selectedYear);
-            ResetForecastDropdown();
         }
-
-        private void btnBrowseForecast_Click(object sender, EventArgs e) => HandleFileSelection(FileType.Forecast);
 
         private async Task ProcessForecastFile(string filePath)
         {
-            // 1. Check Session Limits
-            if (_forecastFiles.Count >= 2)
-            {
-                ShowErrorDialog("Session Full", "Maximum 2 forecast files allowed.\nPlease clear the session or use the dropdown to Roll Forward.");
-                return;
-            }
-
             _busyHelper.ShowBusy("Verifying File...");
             try
             {
-                // 2. Preview File (Get Dates)
                 var previewResponse = await _forecastManager.GetForecastFilePreviewAsync(filePath, _commitmentPeriod);
                 if (!previewResponse.Success)
                 {
-                    _busyHelper.HideBusy(); // Hide early if failing here
+                    if (previewResponse.Data.ProblemItemsTable != null && previewResponse.Data.ProblemItemsTable.Rows.Count > 0)
+                    {
+                        dgvForecastErrors.DataSource = previewResponse.Data.ProblemItemsTable;
+                        ConfigureErrorGrid(dgvForecastErrors);
+                        pnlForecastErrors.Visible = true;
+                    }
+                    _busyHelper.HideBusy();
                     SetStatusThreadSafe(previewResponse.Message, StatusType.Error);
                     return;
                 }
 
                 var newFile = previewResponse.Data;
-                _busyHelper.HideBusy(); // Hide to show dialogs safely
-
-                // 3. Consecutive Logic
-                if (_forecastFiles.Count == 1)
-                {
-                    var existing = _forecastFiles[0];
-                    if (!IsConsecutiveMonth(existing, newFile.ProjectionMonth, newFile.ProjectionYear))
-                    {
-                        bool confirm = ShowSequenceConfirmation(
-                            title: "Non-Consecutive Month",
-                            mainMessage: $"This file ({newFile.ProjectionMonth}) does not follow {existing.ProjectionMonth}.",
-                            subMessage: "Do you want to clear the current session and start a new timeline?",
-                            actionButton: "Start New Timeline");
-
-                        if (confirm)
-                        {
-                            ClearForecastSession();
-                        }
-                        else
-                        {
-                            SetStatusThreadSafe("Upload cancelled.", StatusType.Warning);
-                            return;
-                        }
-                    }
-                }
-
-                // 4. Process & Save (This handles the DB Check)
+                _busyHelper.HideBusy();
                 _busyHelper.ShowBusy("Processing & Saving...");
 
-                // Create a copy to pass to manager
-                var currentListCopy = new List<ForecastFileData>(_forecastFiles);
+                var currentListCopy = new List<ForecastFileData>();
                 var result = await Task.Run(() => _forecastManager.HandleForecastFileAsync(filePath, currentListCopy, _commitmentPeriod, _session));
 
                 if (result.Success)
                 {
-                    _forecastFiles = result.Data;
+                    _forecastFiles.Clear();
+                    _forecastFiles.Add(result.Data.First());
+
+                    _session.IsContinueWithInactiveItems = result.IsContinueWithInactiveItems;
+
                     BindForecastGrids();
                     await UpdateSessionAsync();
                     InputsChanged?.Invoke();
 
-                    // CHECK MESSAGE FOR "IGNORED" (Meaning loaded from DB)
+                    pnlForecastErrors.Visible = false;
+
                     if (result.Message.Contains("IGNORED") || result.Message.Contains("already exists"))
                     {
                         MessageBox.Show(result.Message, "Existing Record Loaded", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -427,6 +292,12 @@ namespace WIPAT
                 }
                 else
                 {
+                    if (result.ProblemItemsTable != null && result.ProblemItemsTable.Rows.Count > 0)
+                    {
+                        dgvForecastErrors.DataSource = result.ProblemItemsTable;
+                        ConfigureErrorGrid(dgvForecastErrors);
+                        pnlForecastErrors.Visible = true;
+                    }
                     SetStatusThreadSafe(result.Message, StatusType.Error);
                     MessageBox.Show(result.Message, "Upload Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
@@ -441,11 +312,48 @@ namespace WIPAT
             }
         }
 
+        private async Task LoadForecastDataCommonAsync(string month, string year)
+        {
+            _busyHelper.ShowBusy($"Loading {month} {year}...");
+            try
+            {
+                var result = await Task.Run(() => _forecastManager.LoadExistingForecastAsync(month, year));
+                _busyHelper.HideBusy();
 
-        // ---------------------------------------------------------
-        // ORDER LOGIC
-        // ---------------------------------------------------------
+                if (result.Success)
+                {
+                    var loadedFile = result.Data;
 
+                    if (loadedFile.IsWipAlreadyCalculated)
+                    {
+                        MessageBox.Show($"WIP for {month} {year} is already calculated.\nYou cannot calculate it again.",
+                            "WIP Already Calculated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+
+                    _forecastFiles.Clear();
+                    _forecastFiles.Add(loadedFile);
+
+                    BindForecastGrids();
+                    await UpdateSessionAsync();
+                    InputsChanged?.Invoke();
+
+                    pnlForecastErrors.Visible = false;
+                    SetStatusThreadSafe($"Loaded {month} {year} successfully.", StatusType.Success);
+                }
+                else
+                {
+                    SetStatusThreadSafe(result.Message, StatusType.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                _busyHelper.HideBusy();
+                SetStatusThreadSafe($"Error: {ex.Message}", StatusType.Error);
+            }
+        }
+        #endregion
+
+        #region Order Logic
         private void LoadOrderDropdown()
         {
             try
@@ -464,29 +372,31 @@ namespace WIPAT
                 }
                 cmbDbOrders.DataSource = items;
             }
-            catch { /* Handle safely */ }
+            catch (Exception ex)
+            {
+                string msg = $"An unexpected error occurred while loading the order dropdown: {ex.Message}"
+                             + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                             + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatusThreadSafe(msg, StatusType.Error);
+            }
         }
 
-        // Common Validation for Orders (Used by both Dropdown and Browse)
         private bool ValidateOrderPrerequisites(string targetMonth, string targetYear)
         {
-            // Check 1: Must have 2 forecasts
-            if (_forecastFiles.Count < 2)
+            if (_forecastFiles.Count == 0)
             {
-                ShowErrorDialog("Prerequisite Missing",
-                    "You must establish a valid Forecast timeline (2 files) before loading Orders.");
+                ShowErrorDialog("Prerequisite Missing", "You must load the Current Forecast before loading Orders.");
                 return false;
             }
 
-            // Check 2: Date Match
-            var targetForecast = _forecastFiles[1]; // The "Current" month
+            var targetForecast = _forecastFiles[0];
             bool match = string.Equals(targetMonth, targetForecast.ProjectionMonth, StringComparison.OrdinalIgnoreCase) &&
                          string.Equals(targetYear, targetForecast.ProjectionYear, StringComparison.OrdinalIgnoreCase);
 
             if (!match)
             {
                 ShowErrorDialog("Date Mismatch",
-                    $"Target Forecast: {targetForecast.ProjectionMonth} {targetForecast.ProjectionYear}\n" +
+                    $"Current Forecast: {targetForecast.ProjectionMonth} {targetForecast.ProjectionYear}\n" +
                     $"Selected Order:  {targetMonth} {targetYear}\n\n" +
                     "The Order file must match the Current Forecast month.");
                 return false;
@@ -497,21 +407,28 @@ namespace WIPAT
 
         private async void cmbDbOrders_SelectionChangeCommitted(object sender, EventArgs e)
         {
-            string sel = cmbDbOrders.SelectedItem?.ToString();
-            if (string.IsNullOrEmpty(sel) || sel.StartsWith("Load")) return;
-
-            var parts = sel.Split('_');
-            if (!ValidateOrderPrerequisites(parts[0], parts[1]))
-            {
-                ResetOrderDropdown();
-                return;
-            }
-
-            _busyHelper.ShowBusy($"Loading Orders {sel}...");
             try
             {
+                string sel = cmbDbOrders.SelectedItem?.ToString();
+                if (string.IsNullOrEmpty(sel) || sel.StartsWith("Load")) return;
+
+                var parts = sel.Split('_');
+                if (!ValidateOrderPrerequisites(parts[0], parts[1]))
+                {
+                    ResetOrderDropdown();
+                    return;
+                }
+
+                _busyHelper.ShowBusy($"Loading Orders {sel}...");
                 var result = await Task.Run(() => _orderManager.LoadExistingOrderAsync(parts[0], parts[1]));
                 HandleOrderLoadResult(result.Success, result.Data, result.Message);
+            }
+            catch (Exception ex)
+            {
+                string msg = $"An unexpected error occurred while loading the selected order: {ex.Message}"
+                             + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                             + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatusThreadSafe(msg, StatusType.Error);
             }
             finally
             {
@@ -520,15 +437,11 @@ namespace WIPAT
             }
         }
 
-        private void btnBrowseOrder_Click(object sender, EventArgs e) => HandleFileSelection(FileType.Order);
-
         private async Task ProcessOrderFile(string filePath)
         {
-            // Note: We can't validate dates yet because we haven't read the file.
-            // But we CAN check if forecasts exist.
-            if (_forecastFiles.Count < 2)
+            if (_forecastFiles.Count < 1)
             {
-                ShowErrorDialog("Prerequisite Missing", "You must upload 2 Forecast files before uploading Orders.");
+                ShowErrorDialog("Prerequisite Missing", "You must load the Current Forecast before uploading Orders.");
                 return;
             }
 
@@ -538,11 +451,10 @@ namespace WIPAT
                 var result = await Task.Run(() => _orderManager.HandleOrderFileAsync(filePath, _session));
                 if (!result.Success)
                 {
-                    // Handle specifically if validation failed inside Manager (Missing Orders)
-                    if (result.Data != null && result.Data.MissingOrders != null && result.Data.MissingOrders.Any())
+                    if (result.Data != null && result.Data.ProblemItemsTable != null && result.Data.ProblemItemsTable.Rows.Count > 0)
                     {
-                        SetStatus("Order file contains invalid items.", StatusType.Error);
-                        dgvOrderErrors.DataSource = result.Data.MissingOrders;
+                        SetStatus(result.Message, StatusType.Error);
+                        dgvOrderErrors.DataSource = result.Data.ProblemItemsTable;
                         pnlOrderErrors.Visible = true;
                         return;
                     }
@@ -550,7 +462,6 @@ namespace WIPAT
                     return;
                 }
 
-                // Check Dates NOW that we have data
                 if (result.Data.ValidOrders.Count > 0)
                 {
                     var r = result.Data.ValidOrders.FirstOrDefault();
@@ -559,7 +470,6 @@ namespace WIPAT
 
                     if (!ValidateOrderPrerequisites(m, y)) return;
 
-                    // CHECK MESSAGE FOR "IGNORED" (Meaning loaded from DB)
                     if (result.Message.Contains("IGNORED") || result.Message.Contains("already exist"))
                     {
                         HandleOrderLoadResult(true, result.Data.DataTable, "Existing Orders loaded from Database.");
@@ -575,59 +485,14 @@ namespace WIPAT
                     SetStatus("Order file is empty.", StatusType.Warning);
                 }
             }
-            finally { _busyHelper.HideBusy(); }
-        }
-
-        #endregion
-
-        #region 3. Common Helpers (Date, Grid, File I/O)
-
-        private async Task LoadForecastDataCommonAsync(string month, string year)
-        {
-            _busyHelper.ShowBusy($"Loading {month} {year}...");
-            try
-            {
-                var result = await Task.Run(() => _forecastManager.LoadExistingForecastAsync(month, year));
-
-                // HIDE BUSY FIRST
-                _busyHelper.HideBusy();
-
-                if (result.Success)
-                {
-                    var loadedFile = result.Data;
-
-                    if (loadedFile.IsWipAlreadyCalculated)
-                    {
-                        MessageBox.Show(
-                            $"WIP for {month} {year} is already calculated.\nYou cannot calculate it again.",
-                            "WIP Already Calculated", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
-
-                    if (_forecastFiles.Count >= 2)
-                    {
-                        _forecastFiles.RemoveAt(0);
-                    }
-
-                    _forecastFiles.Add(loadedFile);
-                    BindForecastGrids();
-                    await UpdateSessionAsync();
-                    InputsChanged?.Invoke();
-
-                    // FIX: Queue Success message safely behind the HideBusy reset
-                    SetStatusThreadSafe($"Loaded {month} {year} successfully.", StatusType.Success);
-                }
-                else
-                {
-                    // FIX
-                    SetStatusThreadSafe(result.Message, StatusType.Error);
-                }
-            }
             catch (Exception ex)
             {
-                _busyHelper.HideBusy();
-                // FIX
-                SetStatusThreadSafe($"Error: {ex.Message}", StatusType.Error);
+                string msg = $"An unexpected error occurred while processing the order file: {ex.Message}"
+                             + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                             + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatusThreadSafe(msg, StatusType.Error);
             }
+            finally { _busyHelper.HideBusy(); }
         }
 
         private void HandleOrderLoadResult(bool success, DataTable data, string msg)
@@ -646,17 +511,190 @@ namespace WIPAT
                 SetStatus($"Failed: {msg}", StatusType.Error);
             }
         }
+        #endregion
 
-        private async void HandleFileSelection(FileType fileType)
+        #region Data Binding & Search Logic
+        private (int Total, int Active, int Inactive, int Invalid) CalculateGridStats(DataTable dt)
         {
-            using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Excel Files|*.xlsx;*.xls" })
+            if (dt == null) return (0, 0, 0, 0);
+
+            string asinCol = null;
+            if (dt.Columns.Contains("C-ASIN")) asinCol = "C-ASIN";
+            else if (dt.Columns.Contains("CASIN")) asinCol = "CASIN";
+
+            if (string.IsNullOrEmpty(asinCol)) return (dt.Rows.Count, dt.Rows.Count, 0, 0);
+
+            var groups = dt.AsEnumerable()
+                .Where(r => r[asinCol] != DBNull.Value && !string.IsNullOrWhiteSpace(r[asinCol].ToString()))
+                .GroupBy(r => r[asinCol].ToString().Trim(), StringComparer.OrdinalIgnoreCase);
+
+            int total = groups.Count();
+            int active = 0;
+            int inactive = 0;
+            int invalid = 0;
+
+            bool hasIsActive = dt.Columns.Contains("IsActive");
+            bool hasItemStatus = dt.Columns.Contains("ItemStatus");
+            bool hasStatus = dt.Columns.Contains("Status");
+
+            foreach (var group in groups)
             {
-                if (ofd.ShowDialog() != DialogResult.OK) return;
-                switch (fileType)
+                var row = group.First();
+                bool isActive = true;
+                bool isInvalid = false;
+
+                if (hasIsActive && row["IsActive"] != DBNull.Value)
                 {
-                    case FileType.Forecast: await ProcessForecastFile(ofd.FileName); break;
-                    case FileType.Order: await ProcessOrderFile(ofd.FileName); break;
+                    isActive = Convert.ToBoolean(row["IsActive"]);
                 }
+
+                string statusText = "";
+                if (hasItemStatus) statusText = row["ItemStatus"]?.ToString();
+                else if (hasStatus) statusText = row["Status"]?.ToString();
+
+                if (statusText?.Equals("Invalid", StringComparison.OrdinalIgnoreCase) == true) isInvalid = true;
+                else if (statusText?.Equals("Inactive", StringComparison.OrdinalIgnoreCase) == true) isActive = false;
+
+                if (isInvalid) invalid++;
+                else if (isActive) active++;
+                else inactive++;
+            }
+
+            return (total, active, inactive, invalid);
+        }
+
+        private void UpdateGridStats(int gridIndex, int total, int active, int inactive, int invalid)
+        {
+            if (gridIndex == 1)
+            {
+                lblTotal1.Text = $"Total: {total}";
+                lblActive1.Text = $"Active: {active}";
+                lblInactive1.Text = $"Inactive: {inactive}";
+                lblInvalid1.Text = $"Invalid: {invalid}";
+                pnlStatsBar1.Visible = true;
+            }
+            else if (gridIndex == 3)
+            {
+                lblTotalOrder.Text = $"Total: {total}";
+                lblActiveOrder.Text = $"Active: {active}";
+                lblInactiveOrder.Text = $"Inactive: {inactive}";
+                lblInvalidOrder.Text = $"Invalid: {invalid}";
+                pnlStatsBarOrder.Visible = true;
+            }
+        }
+
+        private void BindForecastGrids()
+        {
+            if (txtSearchF1_Real != null) txtSearchF1_Real.Text = "";
+
+            dgvForecast1.DataSource = null;
+            lblForecast1.Text = "Empty Slot";
+
+            if (pnlSearch1 != null) pnlSearch1.Visible = false;
+            if (pnlStatsBar1 != null) pnlStatsBar1.Visible = false;
+
+            if (_forecastFiles.Count > 0)
+            {
+                var f1 = _forecastFiles[0];
+                dgvForecast1.DataSource = f1.FullTable;
+
+                lblForecast1.Text = $"{f1.ProjectionMonth} {f1.ProjectionYear} (Current)";
+                lblForecast1.ForeColor = UITheme.GridRowText;
+
+                var stats1 = CalculateGridStats(f1.FullTable);
+                UpdateGridStats(1, stats1.Total, stats1.Active, stats1.Inactive, stats1.Invalid);
+
+                string colName1 = f1.FullTable.Columns.Contains("C-ASIN") ? "C-ASIN" : "CASIN";
+                ColorRowsByGroup(dgvForecast1, colName1);
+
+                if (pnlSearch1 != null) pnlSearch1.Visible = true;
+            }
+        }
+
+        private void BindOrderGrid(DataTable dt)
+        {
+            if (pnlSearchOrder != null)
+            {
+                txtSearchOrder_Real.Text = "";
+                pnlSearchOrder.Visible = true;
+            }
+            dgvOrder.DataSource = dt;
+            dgvOrder.Visible = true;
+
+            if (dt != null && dt.Rows.Count > 0)
+            {
+                string month = dt.Columns.Contains("Month") ? dt.Rows[0]["Month"]?.ToString() : "";
+                string year = dt.Columns.Contains("Year") ? dt.Rows[0]["Year"]?.ToString() : "";
+
+                if (!string.IsNullOrEmpty(month) || !string.IsNullOrEmpty(year))
+                {
+                    lblOrderMonth.Text = $"Order Data: {month} {year}".Trim();
+                    lblOrderMonth.ForeColor = UITheme.GridRowText;
+                }
+                else
+                {
+                    lblOrderMonth.Text = "Order Data Loaded";
+                    lblOrderMonth.ForeColor = UITheme.GridRowText;
+                }
+            }
+            else
+            {
+                lblOrderMonth.Text = "No Order Loaded";
+                lblOrderMonth.ForeColor = Color.Silver;
+            }
+
+            var stats = CalculateGridStats(dt);
+            UpdateGridStats(3, stats.Total, stats.Active, stats.Inactive, stats.Invalid);
+
+            string targetColumn = dt != null && dt.Columns.Contains("C-ASIN") ? "C-ASIN" : (dt != null && dt.Columns.Contains("CASIN") ? "CASIN" : "");
+            if (!string.IsNullOrEmpty(targetColumn))
+            {
+                ColorRowsByGroup(dgvOrder, targetColumn);
+            }
+        }
+
+        private void FilterGrid(DataGridView dgv, string searchText)
+        {
+            if (dgv.DataSource is DataTable dt)
+            {
+                try
+                {
+                    string targetColumn = dt.Columns.Contains("C-ASIN") ? "C-ASIN" : (dt.Columns.Contains("CASIN") ? "CASIN" : "");
+                    if (string.IsNullOrEmpty(targetColumn)) return;
+
+                    string filter = (string.IsNullOrWhiteSpace(searchText) || searchText.StartsWith("Search"))
+                        ? "" : $"[{targetColumn}] LIKE '%{searchText}%'";
+
+                    dt.DefaultView.RowFilter = filter;
+                    ColorRowsByGroup(dgv, targetColumn);
+                }
+                catch (Exception ex)
+                {
+                    string msg = $"An unexpected error occurred while filtering the grid: {ex.Message}"
+                                 + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                 + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                    SetStatusThreadSafe(msg, StatusType.Error);
+                }
+            }
+        }
+
+        private void ColorRowsByGroup(DataGridView dgv, string columnName)
+        {
+            if (dgv.Rows.Count == 0) return;
+            Color color1 = UITheme.SurfaceWhite;
+            Color color2 = UITheme.BackgroundCanvas;
+            Color currentColor = color1;
+            string previousValue = null;
+
+            foreach (DataGridViewRow row in dgv.Rows)
+            {
+                if (!dgv.Columns.Contains(columnName)) return;
+                var cellValue = row.Cells[columnName].Value?.ToString();
+                if (previousValue != null && cellValue != previousValue)
+                    currentColor = (currentColor == color1) ? color2 : color1;
+
+                row.DefaultCellStyle.BackColor = currentColor;
+                previousValue = cellValue;
             }
         }
 
@@ -677,36 +715,53 @@ namespace WIPAT
 
         private async Task UpdateSessionAsync()
         {
-            var resItemsCatalogue = await _itemsRepository.GetItemCatalogues();
+            if (_forecastFiles.Count == 0) return;
+
+            var currentFile = _forecastFiles[0];
+            _session.Curr = currentFile.Forecast;
+            _session.CurrentMonthWithYear = $"{_session.Curr.Month} {_session.Curr.Year}";
+            _session.TargetMonth = $"{_session.Curr.ForecastingFor}";
+
+            // 1. Calculate Previous Month
+            int m = GetMonthNumber(currentFile.ProjectionMonth);
+            int y = int.Parse(currentFile.ProjectionYear);
+
+            DateTime prevDate = new DateTime(y, m, 1).AddMonths(-1);
+            string prevMonthName = prevDate.ToString("MMMM");
+            string prevYearStr = prevDate.Year.ToString();
+
+            // 2. Auto-Fetch Previous Forecast from DB
+            var prevDbResult = await Task.Run(() => _forecastManager.LoadExistingForecastAsync(prevMonthName, prevYearStr));
+
+            if (prevDbResult.Success && prevDbResult.Data != null)
+            {
+                _session.Prev = prevDbResult.Data.Forecast;
+                SetStatusThreadSafe($"Previous forecast ({prevMonthName} {prevYearStr}) automatically detected and linked.", StatusType.Success);
+            }
+            else
+            {
+                _session.Prev = null;
+                SetStatusThreadSafe($"Note: No previous forecast data found for {prevMonthName} {prevYearStr}. Treating as timeline start.", StatusType.Warning);
+            }
+
+            // 3. Finalize Session Setup
+            bool includeInactive = currentFile.IsContinueWithInactiveItems || _session.IsContinueWithInactiveItems;
+            _session.IsContinueWithInactiveItems = includeInactive;
+
+            var resItemsCatalogue = await _itemsRepository.GetActiveItemCatalogues(includeInactive);
             if (resItemsCatalogue.Success)
             {
                 _session.ItemCatalogue = resItemsCatalogue.Data;
             }
 
             _session.WipType = WipType.Analyst.ToString();
-            _session.ForecastFiles = new List<ForecastFileData>(_forecastFiles);
-            var asins = _forecastFiles
-                .SelectMany(f => f.FullTable.AsEnumerable())
+            _session.ForecastFiles = new List<ForecastFileData> { currentFile };
+
+            _session.AsinList = currentFile.FullTable.AsEnumerable()
                 .Select(r => r["C-ASIN"]?.ToString())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct()
                 .ToList();
-            _session.AsinList = asins;
-
-            if (_forecastFiles.Count >= 2)
-            {
-                var sorted = _forecastFiles.OrderBy(f => f.ProjectionYear).ThenBy(f => GetMonthNumber(f.ProjectionMonth)).ToList();
-                _session.Prev = sorted[0].Forecast;
-                _session.Curr = sorted[1].Forecast;
-                _session.CurrentMonthWithYear = $"{_session.Curr.Month} {_session.Curr.Year}";
-            }
-            else if (_forecastFiles.Count == 1)
-            {
-                _session.Curr = _forecastFiles[0].Forecast;
-            }
-
-            _session.TargetMonth = $"{_session.Curr.ForecastingFor}";
-            await Task.CompletedTask;
         }
 
         private void ClearForecastSession()
@@ -714,134 +769,52 @@ namespace WIPAT
             _forecastFiles.Clear();
             dgvForecast1.DataSource = null;
             lblForecast1.Text = "Empty Slot";
-            if (_txtSearchF1_Real != null) _txtSearchF1_Real.Text = "";
 
-            // Also clear second grid if exists
-            dgvForecast2.DataSource = null;
-            lblForecast2.Text = "Empty Slot";
-            if (_txtSearchF2_Real != null) _txtSearchF2_Real.Text = "";
+            if (pnlSearch1 != null)
+            {
+                txtSearchF1_Real.Text = "";
+                pnlSearch1.Visible = false;
+            }
+            if (pnlStatsBar1 != null) pnlStatsBar1.Visible = false;
         }
 
         private void ResetForecastDropdown() => cmbDbForecasts.SelectedIndex = 0;
         private void ResetOrderDropdown() => cmbDbOrders.SelectedIndex = 0;
+        #endregion
 
-        // --- DIALOG HELPERS ---
+        #region Action Handlers
+        private void btnBrowseForecast_Click(object sender, EventArgs e) => HandleFileSelection(FileType.Forecast);
+        private void btnBrowseOrder_Click(object sender, EventArgs e) => HandleFileSelection(FileType.Order);
 
-        private bool ShowSequenceConfirmation(string title, string mainMessage, string subMessage, string actionButton)
+        private async void HandleFileSelection(FileType fileType)
         {
-            string fullMessage = $"{mainMessage}\n\n{subMessage}";
-            // Using standard MessageBox options, but constructing clarity
-            return MessageBox.Show(fullMessage, title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
-        }
-
-        private void ShowErrorDialog(string title, string message)
-        {
-            MessageBox.Show(message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-
-        // --- GRID & DATE HELPERS ---
-
-        private void BindForecastGrids()
-        {
-            if (_txtSearchF1_Real != null) _txtSearchF1_Real.Text = "";
-            if (_txtSearchF2_Real != null) _txtSearchF2_Real.Text = "";
-
-            dgvForecast1.DataSource = null;
-            dgvForecast2.DataSource = null;
-            lblForecast1.Text = "Empty Slot";
-            lblForecast2.Text = "Empty Slot";
-
-            if (_forecastFiles.Count > 0)
+            using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Excel Files|*.xlsx;*.xls" })
             {
-                var f1 = _forecastFiles[0];
-                dgvForecast1.DataSource = f1.FullTable;
-                lblForecast1.Text = $"{f1.ProjectionMonth} {f1.ProjectionYear}";
-                lblForecast1.ForeColor = Color.Black;
-                ColorRowsByGroup(dgvForecast1, "C-ASIN");
-            }
-
-            if (_forecastFiles.Count > 1)
-            {
-                var f2 = _forecastFiles[1];
-                dgvForecast2.DataSource = f2.FullTable;
-                lblForecast2.Text = $"{f2.ProjectionMonth} {f2.ProjectionYear}";
-                lblForecast2.ForeColor = Color.Black;
-                ColorRowsByGroup(dgvForecast2, "C-ASIN");
-            }
-        }
-
-        private void BindOrderGrid(DataTable dt)
-        {
-            if (_txtSearchOrder_Real != null) _txtSearchOrder_Real.Text = "";
-            dgvOrder.DataSource = dt;
-            dgvOrder.Visible = true;
-        }
-
-        private void FilterGrid(DataGridView dgv, string searchText)
-        {
-            if (dgv.DataSource is DataTable dt)
-            {
-                try
+                if (ofd.ShowDialog() != DialogResult.OK) return;
+                switch (fileType)
                 {
-                    string targetColumn = dt.Columns.Contains("C-ASIN") ? "C-ASIN" : (dt.Columns.Contains("CASIN") ? "CASIN" : "");
-                    if (string.IsNullOrEmpty(targetColumn)) return;
-
-                    string filter = (string.IsNullOrWhiteSpace(searchText) || searchText.StartsWith("Search"))
-                        ? "" : $"[{targetColumn}] LIKE '%{searchText}%'";
-
-                    dt.DefaultView.RowFilter = filter;
-                    ColorRowsByGroup(dgv, targetColumn);
+                    case FileType.Forecast: await ProcessForecastFile(ofd.FileName); break;
+                    case FileType.Order: await ProcessOrderFile(ofd.FileName); break;
                 }
-                catch { /* logging */ }
             }
         }
 
-        private void ColorRowsByGroup(DataGridView dgv, string columnName)
+        private void tabControlMain_Selecting(object sender, TabControlCancelEventArgs e)
         {
-            if (dgv.Rows.Count == 0) return;
-            Color color1 = Color.White;
-            Color color2 = Color.FromArgb(245, 247, 250);
-            Color currentColor = color1;
-            string previousValue = null;
-
-            foreach (DataGridViewRow row in dgv.Rows)
+            if (e.TabPage == tabOpenNewForm)
             {
-                if (!dgv.Columns.Contains(columnName)) return;
-                var cellValue = row.Cells[columnName].Value?.ToString();
-                if (previousValue != null && cellValue != previousValue)
-                    currentColor = (currentColor == color1) ? color2 : color1;
-
-                row.DefaultCellStyle.BackColor = currentColor;
-                previousValue = cellValue;
+                e.Cancel = true;
+                var myNewForm = new OrderEntryForm(_session, _orderManager, _excelSerice);
+                myNewForm.Show();
             }
         }
 
-        private int GetMonthNumber(string monthName)
-        {
-            try { return DateTime.ParseExact(monthName.Trim(), "MMMM", CultureInfo.InvariantCulture).Month; }
-            catch { return 0; }
-        }
+        private void btnExportForecastErrors_Click(object sender, EventArgs e) => ExportErrors(dgvForecastErrors, "Forecast_Errors");
+        private void btnExportOrderErrors_Click(object sender, EventArgs e) => ExportErrors(dgvOrderErrors, "Order_Errors");
 
-        private bool IsConsecutiveMonth(ForecastFileData existingFile, string newMonthName, string newYearStr)
+        private void ExportErrors(DataGridView targetGrid, string filePrefix)
         {
-            try
-            {
-                int m1 = GetMonthNumber(existingFile.ProjectionMonth);
-                int y1 = int.Parse(existingFile.ProjectionYear);
-                DateTime date1 = new DateTime(y1, m1, 1);
-                int m2 = GetMonthNumber(newMonthName);
-                int y2 = int.Parse(newYearStr);
-                DateTime date2 = new DateTime(y2, m2, 1);
-                return date1.AddMonths(1) == date2;
-            }
-            catch { return false; }
-        }
-
-        private void SetStatus(string msg, StatusType type) => _setStatus?.Invoke(msg, type);
-        private void SetStatusThreadSafe(string msg, StatusType type) => BeginInvoke(new Action(() => SetStatus(msg, type)));
-        private void btnExportErrors_Click(object sender, EventArgs e)
-        {
-            if (dgvOrderErrors.Rows.Count == 0)
+            if (targetGrid.Rows.Count == 0)
             {
                 MessageBox.Show("No error records to export.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
@@ -851,20 +824,22 @@ namespace WIPAT
             {
                 sfd.Filter = "Excel Workbook|*.xlsx";
                 sfd.Title = "Save Error Report";
-                sfd.FileName = $"Upload_Errors_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+                sfd.FileName = $"{filePrefix}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
 
                 if (sfd.ShowDialog() == DialogResult.OK)
                 {
                     try
                     {
                         _busyHelper.ShowBusy("Exporting Error Report...");
-                        _excelSerice.ExportGridToExcel(dgvOrderErrors, sfd.FileName, "Invalid Orders");
-
+                        _excelSerice.ExportGridToExcel(targetGrid, sfd.FileName, "Invalid Items");
                         MessageBox.Show("Error report exported successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show($"Export Failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        string msg = $"An unexpected error occurred while exporting the error report: {ex.Message}"
+                                     + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                     + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                        MessageBox.Show(msg, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                     finally
                     {
@@ -874,37 +849,194 @@ namespace WIPAT
             }
         }
 
-        #endregion
-
-        private void tabControlMain_Selecting(object sender, TabControlCancelEventArgs e)
+        private void btnMarkInvalid_Click(object sender, EventArgs e)
         {
-            // Check if the clicked tab is our special "New Form" tab
-            if (e.TabPage == tabOpenNewForm)
-            {
-                // 1. Cancel the navigation so we don't go to the blank tab
-                e.Cancel = true;
+            string asinColName = dgvForecastErrors.Columns.Contains("C-ASIN") ? "C-ASIN" :
+                               (dgvForecastErrors.Columns.Contains("CASIN") ? "CASIN" : null);
 
-                // 2. Open your new form
-                var myNewForm = new OrderEntryForm(_session, _orderManager, _excelSerice); 
-                myNewForm.Show();
+            if (string.IsNullOrEmpty(asinColName))
+            {
+                MessageBox.Show("Could not find a valid ASIN column in the error grid.", "Data Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            List<string> selectedAsins = new List<string>();
+            foreach (DataGridViewRow row in dgvForecastErrors.Rows)
+            {
+                var cell = row.Cells["chkSelect"]?.Value;
+                if (cell != null && (bool)cell)
+                {
+                    string asin = row.Cells[asinColName]?.Value?.ToString();
+                    if (!string.IsNullOrEmpty(asin))
+                        selectedAsins.Add(asin);
+                }
+            }
+
+            if (selectedAsins.Count == 0)
+            {
+                MessageBox.Show("No items selected.", "Selection Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            _busyHelper.ShowBusy("Marking items as invalid with stock...");
+
+            try
+            {
+                int userId = _session.LoggedInUser.Id;
+                DataTable dtInvalidItems = CreateInvalidItemDataTable(selectedAsins, userId);
+                DataTable dtInitialStock = CreateInvalidStockDataTable(selectedAsins, userId);
+
+                var response = _itemsRepository.BulkInsertInvalidCatalogueImport(dtInvalidItems, dtInitialStock);
+
+                if (response.Success)
+                {
+                    MessageBox.Show($"{selectedAsins.Count} items have been marked as invalid along with their stock.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show($"Failed to mark items as invalid: {response.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+
+                dgvForecastErrors.DataSource = null;
+                pnlForecastErrors.Visible = false;
+            }
+            catch (Exception ex)
+            {
+                string msg = $"An unexpected error occurred while marking items as invalid: {ex.Message}"
+                           + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                           + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                MessageBox.Show(msg, "System Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                _busyHelper.HideBusy();
             }
         }
 
+        #region Helper Methods for Invalid Casins
+        private DataTable CreateInvalidItemDataTable(List<string> selectedAsins, int createdById)
+        {
+            DataTable dt = new DataTable();
+            dt.Columns.Add("Casin", typeof(string));
+            dt.Columns.Add("Model", typeof(string));
+            dt.Columns.Add("Description", typeof(string));
+            dt.Columns.Add("ColorName", typeof(string));
+            dt.Columns.Add("Size", typeof(string));
+            dt.Columns.Add("PCPK", typeof(string));
+            dt.Columns.Add("CasePackQty", typeof(int));
+            dt.Columns.Add("CreatedAt", typeof(DateTime));
+            dt.Columns.Add("CreatedById", typeof(int));
+            dt.Columns.Add("Notes", typeof(string));
+            dt.Columns.Add("IsActive", typeof(bool));
+            dt.Columns.Add("ItemStatus", typeof(string));
+
+            foreach (var asin in selectedAsins)
+            {
+                var row = dt.NewRow();
+                row["Casin"] = asin;
+                row["Model"] = DBNull.Value;
+                row["Description"] = DBNull.Value;
+                row["ColorName"] = DBNull.Value;
+                row["Size"] = DBNull.Value;
+                row["PCPK"] = DBNull.Value;
+                row["CasePackQty"] = 0;
+                row["CreatedAt"] = DateTime.UtcNow;
+                row["CreatedById"] = createdById;
+                row["Notes"] = DBNull.Value;
+                row["IsActive"] = false;
+                row["ItemStatus"] = "Invalid";
+
+                dt.Rows.Add(row);
+            }
+            return dt;
+        }
+
+        private DataTable CreateInvalidStockDataTable(List<string> selectedAsins, int createdById)
+        {
+            DataTable dt = new DataTable();
+            dt.Columns.Add("Casin", typeof(string));
+            dt.Columns.Add("ItemCatalogueId", typeof(int));
+            dt.Columns.Add("OpeningStock", typeof(int));
+            dt.Columns.Add("CreatedAt", typeof(DateTime));
+            dt.Columns.Add("CreatedById", typeof(int));
+
+            foreach (var asin in selectedAsins)
+            {
+                var row = dt.NewRow();
+                row["Casin"] = asin;
+                row["ItemCatalogueId"] = DBNull.Value;
+                row["OpeningStock"] = 0;
+                row["CreatedAt"] = DateTime.UtcNow;
+                row["CreatedById"] = createdById;
+
+                dt.Rows.Add(row);
+            }
+            return dt;
+        }
+        #endregion
+
+        private void dgvForecastErrors_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.ColumnIndex == dgvForecastErrors.Columns["chkSelect"].Index && e.RowIndex >= 0)
+            {
+                dgvForecastErrors.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            }
+        }
+
+        private void dgvForecastErrors_DataBindingComplete(object sender, DataGridViewBindingCompleteEventArgs e)
+        {
+            if (!dgvForecastErrors.Columns.Contains("chkSelect"))
+                return;
+
+            foreach (DataGridViewRow row in dgvForecastErrors.Rows)
+            {
+                var reason = row.Cells["Reason"].Value?.ToString();
+                var chkCell = row.Cells["chkSelect"];
+
+                if (reason != "Missing")
+                {
+                    chkCell.ReadOnly = true;
+                    chkCell.Style.BackColor = UITheme.GridBorder;
+                    chkCell.Value = false;
+                }
+                else
+                {
+                    chkCell.ReadOnly = false;
+                    chkCell.Style.BackColor = UITheme.SurfaceWhite;
+                }
+            }
+        }
+        #endregion
+
+        #region Helpers
         public static int GetCommitmentPeriodFromConfig()
         {
             string setting = ConfigurationManager.AppSettings["CommitmentPeriod"];
-
-            if (string.IsNullOrEmpty(setting))
-            {
-                throw new ConfigurationErrorsException("AppSetting 'CommitmentPeriod' is missing or empty.");
-            }
-
-            if (!int.TryParse(setting, out int parsedValue))
-            {
-                throw new ConfigurationErrorsException($"AppSetting 'CommitmentPeriod' is not a valid integer: '{setting}'.");
-            }
-
+            if (string.IsNullOrEmpty(setting)) throw new ConfigurationErrorsException("AppSetting 'CommitmentPeriod' is missing or empty.");
+            if (!int.TryParse(setting, out int parsedValue)) throw new ConfigurationErrorsException($"AppSetting 'CommitmentPeriod' is not a valid integer: '{setting}'.");
             return parsedValue;
         }
+
+        private int GetMonthNumber(string monthName)
+        {
+            try { return DateTime.ParseExact(monthName.Trim(), "MMMM", CultureInfo.InvariantCulture).Month; }
+            catch (Exception ex)
+            {
+                string msg = $"An unexpected error occurred while parsing the month number: {ex.Message}"
+                             + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                             + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                SetStatusThreadSafe(msg, StatusType.Warning);
+                return 0;
+            }
+        }
+
+        private void ShowErrorDialog(string title, string message)
+        {
+            MessageBox.Show(message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private void SetStatus(string msg, StatusType type) => _setStatus?.Invoke(msg, type);
+        private void SetStatusThreadSafe(string msg, StatusType type) => BeginInvoke(new Action(() => SetStatus(msg, type)));
+        #endregion
     }
 }

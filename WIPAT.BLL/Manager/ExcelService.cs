@@ -111,6 +111,10 @@ namespace WIPAT.BLL.Services
                     bool IsNumeric(string s) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
                     bool IsEmpty(string s) => string.IsNullOrWhiteSpace(s);
 
+                    HashSet<string> distinctProjMonths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> distinctProjYears = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    bool isForecastFile = fileType == FileType.Forecast.ToString();
+
                     for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
                     {
                         foreach (var colName in requiredExcelColumns)
@@ -121,6 +125,14 @@ namespace WIPAT.BLL.Services
                             if (string.IsNullOrWhiteSpace(cellValue))
                             {
                                 return CreateErrorResponse($"Column '{colName}' at row {row} cannot be empty.");
+                            }
+
+                            if (isForecastFile)
+                            {
+                                if (colName == ForecastExcelColumns.ProjectionMonth.ToString())
+                                    distinctProjMonths.Add(cellValue);
+                                else if (colName == ForecastExcelColumns.ProjectionYear.ToString())
+                                    distinctProjYears.Add(cellValue);
                             }
 
                             if (colName == AllColumnNames.CAsin || colName == "CASIN" && !string.IsNullOrWhiteSpace(cellValue))
@@ -162,6 +174,15 @@ namespace WIPAT.BLL.Services
                             }
                         }
                     }
+
+                    if (isForecastFile)
+                    {
+                        if (distinctProjMonths.Count > 1 || distinctProjYears.Count > 1)
+                        {
+                            return CreateErrorResponse("Upload Failed: Multiple Projection Months or Years detected in the file. All rows must have the exact same Projection Month and Year.");
+                        }
+                    }
+
                     #endregion
 
                     #region Items in File that are MISSING or DEACTIVATED in DB 
@@ -588,6 +609,44 @@ namespace WIPAT.BLL.Services
         #endregion validate excel file
 
         #region Read Excel
+        public Response<(string Month, string Year)> PeekForecastProjectionDate(string filePath, string sheetName)
+        {
+            try
+            {
+                var fileInfo = new FileInfo(filePath);
+                using (var package = new ExcelPackage(fileInfo))
+                {
+                    var ws = package.Workbook.Worksheets[sheetName];
+                    if (ws == null || ws.Dimension == null)
+                        return new Response<(string, string)> { Success = false };
+
+                    int monthCol = -1;
+                    int yearCol = -1;
+
+                    // Find the columns dynamically
+                    for (int col = 1; col <= ws.Dimension.End.Column; col++)
+                    {
+                        var header = ws.Cells[1, col].Text?.Trim();
+                        if (header == ForecastExcelColumns.ProjectionMonth.ToString()) monthCol = col;
+                        if (header == ForecastExcelColumns.ProjectionYear.ToString()) yearCol = col;
+                    }
+
+                    if (monthCol == -1 || yearCol == -1)
+                        return new Response<(string, string)> { Success = false };
+
+                    // Grab the values from the first data row (Row 2)
+                    string monthStr = ws.Cells[2, monthCol].Text?.Trim();
+                    string yearStr = ws.Cells[2, yearCol].Text?.Trim();
+
+                    return new Response<(string, string)> { Success = true, Data = (monthStr, yearStr) };
+                }
+            }
+            catch
+            {
+                return new Response<(string, string)> { Success = false };
+            }
+        }
+
         public Response<DataTable> ReadExcelToDataTable(string filePath, string sheetName, List<string> columnsToRead = null)
         {
             var response = new Response<DataTable>();

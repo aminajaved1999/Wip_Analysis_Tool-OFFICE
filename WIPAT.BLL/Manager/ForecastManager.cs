@@ -125,9 +125,50 @@ namespace WIPAT.BLL.Managers
                 return new Response<List<ForecastFileData>> { Success = false, Message = $"Error: {ex.Message}" };
             }
         }
+
         public async Task<Response<ForecastFileData>> GetForecastFilePreviewAsync(string filePath, int commitmentPeriod)
         {
-            // Execute full validation and cache the result for the subsequent save operation
+            string fileName = Path.GetFileName(filePath);
+            string sheetName = _excelService.GetEnumValue(ExcelSheetNames.Forecast);
+
+            // 1. FAST PEEK & DB CHECK (Bypass heavy validation if already in DB)
+            var peekRes = await Task.Run(() => _excelService.PeekForecastProjectionDate(filePath, sheetName));
+
+            if (peekRes.Success)
+            {
+                if (int.TryParse(peekRes.Data.Month, out int pMonth) && int.TryParse(peekRes.Data.Year, out int pYear))
+                {
+                    DateTime projDate = new DateTime(pYear, pMonth, 1);
+                    string monthName = projDate.ToString("MMMM");
+                    string yearStr = projDate.ToString("yyyy");
+
+                    var dbCheck = _forecastRepository.PerformForecastChecks2(fileName, monthName, yearStr);
+
+                    // In your repository, Success = false means the record ALREADY EXISTS
+                    if (!dbCheck.Success && dbCheck.Data != null && (dbCheck.Data.FileExists || dbCheck.Data.ProjectionExists))
+                    {
+                        // Bypass validation completely. Create a dummy object for HandleForecastFileAsync.
+                        var existingFileData = new ForecastFileData
+                        {
+                            FileName = fileName,
+                            FilePath = filePath,
+                            ProjectionMonth = monthName,
+                            ProjectionYear = yearStr
+                        };
+
+                        _lastPreviewedData = existingFileData; // Cache it so HandleForecastFileAsync catches it
+
+                        return new Response<ForecastFileData>
+                        {
+                            Success = true, // Force success so the UI moves to HandleForecastFileAsync seamlessly
+                            Message = dbCheck.Message,
+                            Data = existingFileData
+                        };
+                    }
+                }
+            }
+
+            // 2. HEAVY VALIDATION (Only runs if the file is genuinely new)
             var res = await ProcessForecastFileInternal(filePath, commitmentPeriod, true);
             if (res.Success)
             {
@@ -211,6 +252,11 @@ namespace WIPAT.BLL.Managers
 
             DataTable rawTable = readRes.Data;
 
+            if (rawTable.Rows.Count == 0)
+            {
+                return new Response<ForecastFileData> { Success = false, Message = "File is empty." };
+            }
+
             var processedTable = new DataTable();
             foreach (var col in requiredColumns) processedTable.Columns.Add(col);
             processedTable.Columns.Add("Month");
@@ -218,11 +264,6 @@ namespace WIPAT.BLL.Managers
             processedTable.Columns.Add("ItemStatus", typeof(int));
 
             var asinRowIndex = new Dictionary<string, int>();
-
-            if (rawTable.Rows.Count == 0)
-            {
-                return new Response<ForecastFileData> { Success = false, Message = "File is empty." };
-            }
 
             var allDbItemsRes = await _itemsRepository.GetActiveItemCatalogues(true);
             var allDbItems = allDbItemsRes.Success && allDbItemsRes.Data != null

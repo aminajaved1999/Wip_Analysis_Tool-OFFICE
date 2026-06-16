@@ -21,6 +21,8 @@ namespace WIPAT.BLL.Interfaces
         #endregion  validate excel file
 
         #region Read Excel
+        Response<(string Month, string Year)> PeekForecastProjectionDate(string filePath, string sheetName);
+
         Response<DataTable> ReadExcelToDataTable(string filePath, string sheetName, List<string> columnsToRead = null);
         //Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath);
         Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath, bool isUpdate = false);

@@ -72,7 +72,6 @@
     <Compile Include="Interfaces\INewWorkingWipManager.cs" />
     <Compile Include="Interfaces\IWipManager.cs" />
     <Compile Include="Manager\ExcelService.cs" />
-    <Compile Include="Manager\ExcelTemplateDefinitions.cs" />
     <Compile Include="Manager\ExcelValidationService.cs" />
     <Compile Include="Manager\NewWorkingWipManager.cs" />
     <Compile Include="Manager\OrderManager.cs" />

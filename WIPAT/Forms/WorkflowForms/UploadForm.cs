@@ -16,6 +16,7 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 using WIPAT.Helpers;
 
 namespace WIPAT
@@ -119,73 +120,6 @@ namespace WIPAT
             UITheme.StyleGrid(dgvOrder, true);
             UITheme.StyleGrid(dgvForecastErrors, false);
             UITheme.StyleGrid(dgvOrderErrors, false);
-
-            // Wire up the visual formatter so 0,1,2 displays as beautiful Text in all grids
-            dgvForecast1.CellFormatting += DataGridView_ItemStatus_CellFormatting;
-            dgvOrder.CellFormatting += DataGridView_ItemStatus_CellFormatting;
-            dgvForecastErrors.CellFormatting += DataGridView_ItemStatus_CellFormatting;
-            dgvOrderErrors.CellFormatting += DataGridView_ItemStatus_CellFormatting;
-        }
-
-        // Magic method to display Enums (0, 1, 2) as readable, beautifully colored text in the UI
-        private void DataGridView_ItemStatus_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
-        {
-            var dgv = sender as DataGridView;
-            if (dgv != null && e.ColumnIndex >= 0 && e.RowIndex >= 0 && e.Value != null && e.Value != DBNull.Value)
-            {
-                string colName = dgv.Columns[e.ColumnIndex].Name;
-
-                if (colName == "ItemStatus")
-                {
-                    string valStr = e.Value.ToString().Trim();
-
-                    if (int.TryParse(valStr, out int statusVal))
-                    {
-                        switch (statusVal)
-                        {
-                            case 0:
-                                e.Value = "Inactive";
-                                e.CellStyle.ForeColor = Color.DarkGray;
-                                break;
-                            case 1:
-                                e.Value = "Active";
-                                e.CellStyle.ForeColor = Color.Green;
-                                break;
-                            case 2:
-                                e.Value = "Invalid";
-                                e.CellStyle.ForeColor = Color.Red;
-                                break;
-                        }
-                        e.FormattingApplied = true;
-                    }
-                    else
-                    {
-                        // Fallback safely just in case it is already parsed as string
-                        if (valStr.Equals("Inactive", StringComparison.OrdinalIgnoreCase))
-                        {
-                            e.CellStyle.ForeColor = Color.DarkGray;
-                        }
-                        else if (valStr.Equals("Active", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Valid", StringComparison.OrdinalIgnoreCase))
-                        {
-                            e.CellStyle.ForeColor = Color.Green;
-                        }
-                        else if (valStr.Equals("Invalid", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Missing", StringComparison.OrdinalIgnoreCase))
-                        {
-                            e.CellStyle.ForeColor = Color.Red;
-                        }
-                    }
-                }
-                else if (colName == "Status" || colName == "Reason") // For Order Grid Status column checks & Error Grids
-                {
-                    string statusStr = e.Value.ToString();
-                    if (statusStr.Contains("Valid"))
-                        e.CellStyle.ForeColor = Color.Green;
-                    else if (statusStr.Contains("Deactivated"))
-                        e.CellStyle.ForeColor = Color.DarkGray;
-                    else if (statusStr.Contains("Missing") || statusStr.Contains("Error") || statusStr.Contains("Invalid"))
-                        e.CellStyle.ForeColor = Color.Red;
-                }
-            }
         }
 
         private void SetupModernSearchBars()
@@ -621,23 +555,23 @@ namespace WIPAT
         {
             if (dt == null) return (0, 0, 0, 0);
 
-            string asinCol = null;
-            if (dt.Columns.Contains("C-ASIN")) asinCol = "C-ASIN";
-            else if (dt.Columns.Contains("CASIN")) asinCol = "CASIN";
+            string casinColName = MasterColumnCatalogue.Casin.Name;
+            string itemStatusColName = MasterColumnCatalogue.ItemStatus.Name;
 
-            if (string.IsNullOrEmpty(asinCol)) return (dt.Rows.Count, dt.Rows.Count, 0, 0);
+            // If the exact CASIN column isn't there, we can't group by it
+            if (!dt.Columns.Contains(casinColName)) return (dt.Rows.Count, dt.Rows.Count, 0, 0);
 
             var groups = dt.AsEnumerable()
-                .Where(r => r[asinCol] != DBNull.Value && !string.IsNullOrWhiteSpace(r[asinCol].ToString()))
-                .GroupBy(r => r[asinCol].ToString().Trim(), StringComparer.OrdinalIgnoreCase);
+                .Where(r => r[casinColName] != DBNull.Value && !string.IsNullOrWhiteSpace(r[casinColName].ToString()))
+                .GroupBy(r => r[casinColName].ToString().Trim(), StringComparer.OrdinalIgnoreCase);
 
             int total = groups.Count();
             int active = 0;
             int inactive = 0;
             int invalid = 0;
 
-            bool hasItemStatus = dt.Columns.Contains("ItemStatus"); // Int enum
-            bool hasUiStatus = dt.Columns.Contains("Status");       // Custom UI string
+            bool hasItemStatus = dt.Columns.Contains(itemStatusColName);
+            bool hasUiStatus = dt.Columns.Contains("Status");
 
             foreach (var group in groups)
             {
@@ -651,20 +585,31 @@ namespace WIPAT
                     else if (s.Contains("Deactivated")) inactive++;
                     else if (s.Contains("Missing") || s.Contains("Error")) invalid++;
                 }
-                // Forecast Manager DB format (0 = Inactive, 1 = Active, 2 = Invalid)
-                else if (hasItemStatus && row["ItemStatus"] != DBNull.Value)
+                // Forecast Manager format - handles both string ("Active") and integer ("1") representations
+                else if (hasItemStatus && row[itemStatusColName] != DBNull.Value)
                 {
-                    if (int.TryParse(row["ItemStatus"].ToString(), out int stat))
+                    string statusValue = row[itemStatusColName].ToString().Trim();
+
+                    // Try to parse as integer first (0 = Inactive, 1 = Active, 2 = Invalid)
+                    if (int.TryParse(statusValue, out int stat))
                     {
                         if (stat == 1) active++;
                         else if (stat == 0) inactive++;
                         else if (stat == 2) invalid++;
+                    }
+                    else
+                    {
+                        // Fallback to string comparison for the data shown in the visualizer
+                        if (statusValue.Equals("Active", StringComparison.OrdinalIgnoreCase)) active++;
+                        else if (statusValue.Equals("Inactive", StringComparison.OrdinalIgnoreCase)) inactive++;
+                        else if (statusValue.Equals("Invalid", StringComparison.OrdinalIgnoreCase)) invalid++;
                     }
                 }
             }
 
             return (total, active, inactive, invalid);
         }
+     
 
         private void UpdateGridStats(int gridIndex, int total, int active, int inactive, int invalid)
         {
@@ -866,7 +811,7 @@ namespace WIPAT
             _session.ForecastFiles = new List<ForecastFileData> { currentFile };
 
             _session.AsinList = currentFile.FullTable.AsEnumerable()
-                .Select(r => r["C-ASIN"]?.ToString())
+                .Select(r => r["CASIN"]?.ToString())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct()
                 .ToList();

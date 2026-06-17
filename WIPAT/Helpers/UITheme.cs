@@ -133,7 +133,6 @@ namespace WIPAT.Helpers
 
         #endregion
 
-
         #region --- BUTTON STYLING ---
 
         public static void StyleButton(Button btn, AppButtonStyle style)
@@ -200,7 +199,6 @@ namespace WIPAT.Helpers
 
         #endregion --- BUTTON STYLING ---
 
-
         #region --- GRID STYLING ---
 
         public static void StyleGrid(DataGridView grid, bool isValid = true)
@@ -259,9 +257,72 @@ namespace WIPAT.Helpers
                 grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(230, 230, 230);
                 grid.DefaultCellStyle.SelectionForeColor = PureBlack;
             }
+
+            // 6. Automatically wire up the dynamic cell formatting!
+            // We detach first (-=) just in case StyleGrid is called multiple times on the same grid,
+            // which prevents the event from firing multiple times per cell.
+            grid.CellFormatting -= FormatItemStatusCell;
+            grid.CellFormatting += FormatItemStatusCell;
         }
 
         #endregion --- GRID STYLING ---
+
+        #region --- GRID CELL FORMATTING ---
+
+        /// <summary>
+        /// Formats the ItemStatus column text and colors based on UITheme design tokens.
+        /// Tied automatically via StyleGrid.
+        /// </summary>
+        private static void FormatItemStatusCell(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            // Cast the sender back to a DataGridView
+            if (sender is DataGridView grid)
+            {
+                if (e.RowIndex >= 0 && grid.Columns[e.ColumnIndex].Name == "ItemStatus" && e.Value != null && e.Value != DBNull.Value)
+                {
+                    string cellValue = e.Value.ToString();
+
+                    // Handle raw integer values from the database
+                    if (int.TryParse(cellValue, out int statusVal))
+                    {
+                        switch (statusVal)
+                        {
+                            case 0:
+                                e.Value = "Inactive";
+                                e.CellStyle.ForeColor = StandardGray;
+                                break;
+                            case 1:
+                                e.Value = "Active";
+                                e.CellStyle.ForeColor = SuccessGreen;
+                                break;
+                            case 2:
+                                e.Value = "Invalid";
+                                e.CellStyle.ForeColor = CrimsonRed;
+                                break;
+                        }
+                        e.FormattingApplied = true;
+                    }
+                    // Fallback: Handle string values in case the grid is already bound to text
+                    else
+                    {
+                        if (cellValue.Equals("Active", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = SuccessGreen;
+                        }
+                        else if (cellValue.Equals("Invalid", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = CrimsonRed;
+                        }
+                        else if (cellValue.Equals("Inactive", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.CellStyle.ForeColor = StandardGray;
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion --- GRID CELL FORMATTING ---
 
         #region --- GRID SUMMARY WIDGET ---
 

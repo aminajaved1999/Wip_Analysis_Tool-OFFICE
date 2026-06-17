@@ -9,6 +9,7 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 
 namespace WIPAT.BLL.Managers
 {
@@ -218,16 +219,28 @@ namespace WIPAT.BLL.Managers
         {
             var response = new Response<ForecastFileData>();
 
-            var requiredColumns = new List<string>
-            {
-                _excelService.GetEnumValue(ForecastExcelColumns.CASIN),
-                _excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity),
-                _excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period),
-                _excelService.GetEnumValue(ForecastExcelColumns.PO_Date),
-                ForecastExcelColumns.ProjectionMonth.ToString(),
-                ForecastExcelColumns.ProjectionYear.ToString()
-            };
+            //var requiredColumns = new List<string>
+            //{
+            //    _excelService.GetEnumValue(ForecastExcelColumns.CASIN),
+            //    _excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity),
+            //    _excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period),
+            //    _excelService.GetEnumValue(ForecastExcelColumns.PO_Date),
+            //    ForecastExcelColumns.ProjectionMonth.ToString(),
+            //    ForecastExcelColumns.ProjectionYear.ToString()
+            //};
 
+
+            // 1. Get the list of ColumnRule objects
+            var requiredExcelColumns = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.ForecastFile);
+
+            // Define the columns you want to ignore
+            var excludedColumns = new[] { "Month", "Year", "ItemStatus" };
+
+            // 2. Extract the Name, filter out the unwanted ones, and convert to a List<string>
+            List<string> requiredColumns = requiredExcelColumns
+                .Select(rule => rule.Definition.Name)
+                .Where(name => !excludedColumns.Contains(name))
+                .ToList();
             string sheetName = _excelService.GetEnumValue(ExcelSheetNames.Forecast);
 
             var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Forecast.ToString(), sheetName, requiredColumns);
@@ -373,7 +386,7 @@ namespace WIPAT.BLL.Managers
                 foreach (var schedule in distinctSchedules)
                 {
                     var newRow = table.NewRow();
-                    newRow["C-ASIN"] = missingCasin;
+                    newRow["CASIN"] = missingCasin;
                     newRow[_excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity)] = "0";
                     newRow[_excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period)] = schedule.Period;
                     newRow[_excelService.GetEnumValue(ForecastExcelColumns.PO_Date)] = schedule.PODate;

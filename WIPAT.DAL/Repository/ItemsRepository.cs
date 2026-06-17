@@ -152,6 +152,37 @@ namespace WIPAT.DAL
                                .FirstOrDefaultAsync();
         }
 
+        public async Task<Dictionary<string, int>> GetCasinStatusesBatchAsync(IEnumerable<string> casins)
+        {
+            var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            // Convert to a List so Skip and Take operate efficiently
+            var casinList = casins.ToList();
+            int batchSize = 1000;
+            int total = casinList.Count;
+
+            // Loop through the list in batches of 1000
+            for (int i = 0; i < total; i += batchSize)
+            {
+                // Extract exactly 1000 items (or whatever is left) for this batch
+                var chunk = casinList.Skip(i).Take(batchSize).ToList();
+
+                // Send this batch to the database
+                var chunkResult = await _context.ItemCatalogues
+                    .Where(item => chunk.Contains(item.Casin))
+                    .Select(item => new { item.Casin, item.ItemStatus })
+                    .ToDictionaryAsync(x => x.Casin, x => (int)x.ItemStatus, StringComparer.OrdinalIgnoreCase);
+
+                // Merge the chunk results into our main dictionary
+                foreach (var kvp in chunkResult)
+                {
+                    result[kvp.Key] = kvp.Value;
+                }
+            }
+
+            return result;
+        }
+
         public async Task<Response<bool>> IsCasinExistInCatalogueAndInitialStock(string casin)
         {
             try

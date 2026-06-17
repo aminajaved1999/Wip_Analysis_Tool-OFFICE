@@ -208,7 +208,7 @@
             this.dgvItems.Name = "dgvItems";
             this.dgvItems.Size = new System.Drawing.Size(1200, 433);
             this.dgvItems.TabIndex = 2;
-            this.dgvItems.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.DgvItems_CellFormatting);
+            //this.dgvItems.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.DgvItems_CellFormatting);
             // 
             // statusStrip
             // 

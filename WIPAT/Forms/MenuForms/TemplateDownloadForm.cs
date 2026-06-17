@@ -8,11 +8,11 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions; 
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL.Manager;
-using WIPAT.BLL.Manager.ExcelTemplateDefinitions;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 using WIPAT.Helpers;
 
 namespace WIPAT.Forms
@@ -47,8 +47,8 @@ namespace WIPAT.Forms
         private void TemplateDownloadForm_Load(object sender, EventArgs e)
         {
             // Bind Enum values but format them nicely with spaces (e.g., "ForecastFile" -> "Forecast File")
-            var dataSource = Enum.GetValues(typeof(ExcelFileType))
-                                 .Cast<ExcelFileType>()
+            var dataSource = Enum.GetValues(typeof(ImportExcelFileType))
+                                 .Cast<ImportExcelFileType>()
                                  .Select(fileType => new
                                  {
                                      Value = fileType,
@@ -71,7 +71,7 @@ namespace WIPAT.Forms
             }
 
             // Retrieve the selected type using SelectedValue
-            ExcelFileType selectedType = (ExcelFileType)cmbFileType.SelectedValue;
+            ImportExcelFileType selectedType = (ImportExcelFileType)cmbFileType.SelectedValue;
 
             // Dynamically set the default file name before showing the dialog
             saveFileDialog1.FileName = $"{selectedType}_Template.xlsx";
@@ -83,22 +83,22 @@ namespace WIPAT.Forms
             }
         }
 
-        private void GenerateExcelTemplate(ExcelFileType fileType, string filePath)
+        private void GenerateExcelTemplate(ImportExcelFileType fileType, string filePath)
         {
-            var rules = FileTemplateFactory.GetTemplate(fileType);
+            var rules = FileTemplateFactory.GetImportTemplate(fileType);
 
             // Determine worksheet name dynamically based on App.config keys
             string sheetName = fileType.ToString();
 
-            if (fileType == ExcelFileType.AddNewItemsToCatalogue || fileType == ExcelFileType.UpdateExistingCatalogue)
+            if (fileType == ImportExcelFileType.AddNewItemsToCatalogue || fileType == ImportExcelFileType.UpdateExistingCatalogue)
             {
                 sheetName = ConfigurationManager.AppSettings["ItemCatalogueWorksheetName"] ?? "ItemCatalogues";
             }
-            else if (fileType == ExcelFileType.ForecastFile)
+            else if (fileType == ImportExcelFileType.ForecastFile)
             {
                 sheetName = ConfigurationManager.AppSettings["ForecastWorksheetName"] ?? "Vendor Central Excel Output";
             }
-            else if (fileType == ExcelFileType.OrderFile)
+            else if (fileType == ImportExcelFileType.OrderFile)
             {
                 sheetName = ConfigurationManager.AppSettings["OrderWorksheetName"] ?? "Order";
             }

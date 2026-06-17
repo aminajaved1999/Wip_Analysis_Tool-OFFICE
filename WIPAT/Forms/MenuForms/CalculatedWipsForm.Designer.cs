@@ -204,7 +204,6 @@
             this.dgvWipDetails.Name = "dgvWipDetails";
             this.dgvWipDetails.Size = new System.Drawing.Size(1200, 433);
             this.dgvWipDetails.TabIndex = 2;
-            this.dgvWipDetails.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.DataGridView_ItemStatus_CellFormatting);
             // 
             // statusStrip
             // 

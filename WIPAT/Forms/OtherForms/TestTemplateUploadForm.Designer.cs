@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
             this.headerPanel = new System.Windows.Forms.Panel();
             this.lblTitle = new System.Windows.Forms.Label();
             this.toolbarPanel = new System.Windows.Forms.Panel();
@@ -37,10 +38,18 @@
             this.dataGridView = new System.Windows.Forms.DataGridView();
             this.statusStrip = new System.Windows.Forms.StatusStrip();
             this.statusLabel = new System.Windows.Forms.ToolStripStatusLabel();
+            this.pnlErrorItems = new System.Windows.Forms.Panel();
+            this.dgvErrorItems = new System.Windows.Forms.DataGridView();
+            this.chkSelect = new System.Windows.Forms.DataGridViewCheckBoxColumn();
+            this.lblErrorHeader = new System.Windows.Forms.Label();
+            this.btnMarkInvalid = new System.Windows.Forms.Button();
+            this.btnExportErrors = new System.Windows.Forms.Button();
             this.headerPanel.SuspendLayout();
             this.toolbarPanel.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView)).BeginInit();
             this.statusStrip.SuspendLayout();
+            this.pnlErrorItems.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvErrorItems)).BeginInit();
             this.SuspendLayout();
             // 
             // headerPanel
@@ -60,7 +69,7 @@
             this.lblTitle.ForeColor = System.Drawing.Color.White;
             this.lblTitle.Location = new System.Drawing.Point(20, 16);
             this.lblTitle.Name = "lblTitle";
-            this.lblTitle.Size = new System.Drawing.Size(268, 32);
+            this.lblTitle.Size = new System.Drawing.Size(261, 32);
             this.lblTitle.TabIndex = 0;
             this.lblTitle.Text = "Upload & Validate Data";
             // 
@@ -90,7 +99,7 @@
             // 
             // txtFilePath
             // 
-            this.txtFilePath.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            this.txtFilePath.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
             this.txtFilePath.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.txtFilePath.Location = new System.Drawing.Point(260, 16);
@@ -139,18 +148,95 @@
             this.statusLabel.Size = new System.Drawing.Size(39, 17);
             this.statusLabel.Text = "Ready";
             // 
-            // UploadValidationForm
+            // pnlErrorItems
+            // 
+            this.pnlErrorItems.BackColor = System.Drawing.Color.WhiteSmoke;
+            this.pnlErrorItems.Controls.Add(this.dgvErrorItems);
+            this.pnlErrorItems.Controls.Add(this.lblErrorHeader);
+            this.pnlErrorItems.Controls.Add(this.btnMarkInvalid);
+            this.pnlErrorItems.Controls.Add(this.btnExportErrors);
+            this.pnlErrorItems.Dock = System.Windows.Forms.DockStyle.Right;
+            this.pnlErrorItems.Location = new System.Drawing.Point(434, 125);
+            this.pnlErrorItems.Name = "pnlErrorItems";
+            this.pnlErrorItems.Padding = new System.Windows.Forms.Padding(10);
+            this.pnlErrorItems.Size = new System.Drawing.Size(450, 414);
+            this.pnlErrorItems.TabIndex = 4;
+            this.pnlErrorItems.Visible = false;
+            // 
+            // dgvErrorItems
+            // 
+            this.dgvErrorItems.AllowUserToAddRows = false;
+            this.dgvErrorItems.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dgvErrorItems.AutoSizeRowsMode = System.Windows.Forms.DataGridViewAutoSizeRowsMode.AllCells;
+            this.dgvErrorItems.BackgroundColor = System.Drawing.SystemColors.ButtonFace;
+            this.dgvErrorItems.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvErrorItems.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
+            this.chkSelect});
+            dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle1.BackColor = System.Drawing.SystemColors.Window;
+            dataGridViewCellStyle1.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            dataGridViewCellStyle1.ForeColor = System.Drawing.SystemColors.ControlText;
+            dataGridViewCellStyle1.SelectionBackColor = System.Drawing.SystemColors.Highlight;
+            dataGridViewCellStyle1.SelectionForeColor = System.Drawing.SystemColors.HighlightText;
+            dataGridViewCellStyle1.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
+            this.dgvErrorItems.DefaultCellStyle = dataGridViewCellStyle1;
+            this.dgvErrorItems.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.dgvErrorItems.Location = new System.Drawing.Point(10, 50);
+            this.dgvErrorItems.Name = "dgvErrorItems";
+            this.dgvErrorItems.RowHeadersVisible = false;
+            this.dgvErrorItems.RowTemplate.Height = 25;
+            this.dgvErrorItems.Size = new System.Drawing.Size(430, 284);
+            this.dgvErrorItems.TabIndex = 1;
+            // 
+            // chkSelect
+            // 
+            this.chkSelect.HeaderText = "Select";
+            this.chkSelect.Name = "chkSelect";
+            // 
+            // lblErrorHeader
+            // 
+            this.lblErrorHeader.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblErrorHeader.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold);
+            this.lblErrorHeader.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(53)))), ((int)(((byte)(69)))));
+            this.lblErrorHeader.Location = new System.Drawing.Point(10, 10);
+            this.lblErrorHeader.Name = "lblErrorHeader";
+            this.lblErrorHeader.Size = new System.Drawing.Size(430, 40);
+            this.lblErrorHeader.TabIndex = 0;
+            this.lblErrorHeader.Text = "Invalid Items";
+            // 
+            // btnMarkInvalid
+            // 
+            this.btnMarkInvalid.Dock = System.Windows.Forms.DockStyle.Bottom;
+            this.btnMarkInvalid.Location = new System.Drawing.Point(10, 334);
+            this.btnMarkInvalid.Name = "btnMarkInvalid";
+            this.btnMarkInvalid.Size = new System.Drawing.Size(430, 35);
+            this.btnMarkInvalid.TabIndex = 4;
+            this.btnMarkInvalid.Text = "Mark Selected as Invalid";
+            this.btnMarkInvalid.UseVisualStyleBackColor = true;
+            // 
+            // btnExportErrors
+            // 
+            this.btnExportErrors.Dock = System.Windows.Forms.DockStyle.Bottom;
+            this.btnExportErrors.Location = new System.Drawing.Point(10, 369);
+            this.btnExportErrors.Name = "btnExportErrors";
+            this.btnExportErrors.Size = new System.Drawing.Size(430, 35);
+            this.btnExportErrors.TabIndex = 2;
+            this.btnExportErrors.Text = "Export Errors";
+            this.btnExportErrors.UseVisualStyleBackColor = true;
+            // 
+            // TestTemplateUploadForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(884, 561);
+            this.Controls.Add(this.pnlErrorItems);
             this.Controls.Add(this.dataGridView);
             this.Controls.Add(this.toolbarPanel);
             this.Controls.Add(this.headerPanel);
             this.Controls.Add(this.statusStrip);
             this.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.MinimumSize = new System.Drawing.Size(600, 400);
-            this.Name = "UploadValidationForm";
+            this.Name = "TestTemplateUploadForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Text = "Data Validation";
             this.Load += new System.EventHandler(this.UploadValidationForm_Load);
@@ -161,6 +247,8 @@
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView)).EndInit();
             this.statusStrip.ResumeLayout(false);
             this.statusStrip.PerformLayout();
+            this.pnlErrorItems.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)(this.dgvErrorItems)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -177,5 +265,11 @@
         private System.Windows.Forms.DataGridView dataGridView;
         private System.Windows.Forms.StatusStrip statusStrip;
         private System.Windows.Forms.ToolStripStatusLabel statusLabel;
+        private System.Windows.Forms.Panel pnlErrorItems;
+        private System.Windows.Forms.DataGridView dgvErrorItems;
+        private System.Windows.Forms.DataGridViewCheckBoxColumn chkSelect;
+        private System.Windows.Forms.Label lblErrorHeader;
+        private System.Windows.Forms.Button btnMarkInvalid;
+        private System.Windows.Forms.Button btnExportErrors;
     }
 }

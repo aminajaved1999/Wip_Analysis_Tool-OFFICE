@@ -154,46 +154,7 @@ namespace WIPAT
         {
             await ExportAsync();
         }
-
-        private void PreviewGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
-        {
-            var dgv = sender as DataGridView;
-            if (dgv != null && e.ColumnIndex >= 0 && e.RowIndex >= 0 && e.Value != null && e.Value != DBNull.Value)
-            {
-                if (dgv.Columns[e.ColumnIndex].Name == "ItemStatus")
-                {
-                    string valStr = e.Value.ToString().Trim();
-
-                    if (int.TryParse(valStr, out int statusVal))
-                    {
-                        switch (statusVal)
-                        {
-                            case 0:
-                                e.Value = "Inactive";
-                                e.CellStyle.ForeColor = Color.DarkGray;
-                                break;
-                            case 1:
-                                e.Value = "Active";
-                                e.CellStyle.ForeColor = Color.Green;
-                                break;
-                            case 2:
-                                e.Value = "Invalid";
-                                e.CellStyle.ForeColor = Color.Red;
-                                break;
-                        }
-                        e.FormattingApplied = true;
-                    }
-                    else
-                    {
-                        // Fallback if it's already translated to string
-                        if (valStr.Equals("Inactive", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.DarkGray;
-                        else if (valStr.Equals("Active", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Valid", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.Green;
-                        else if (valStr.Equals("Invalid", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Missing", StringComparison.OrdinalIgnoreCase)) e.CellStyle.ForeColor = Color.Red;
-                    }
-                }
-            }
-        }
-
+     
         private void PreviewGrid_DataBindingComplete(object sender, DataGridViewBindingCompleteEventArgs e)
         {
             UITheme.UpdateGridSummaryCounts(previewGrid, lblTotalItems, lblActiveItems, lblInactiveItems, lblInvalidItems);

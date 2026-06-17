@@ -90,6 +90,7 @@
     <Compile Include="Enum\WipStatus.cs" />
     <Compile Include="Enum\WipType.cs" />
     <Compile Include="ExcelTemplateColumns.cs" />
+    <Compile Include="ExcelTemplateDefinitions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

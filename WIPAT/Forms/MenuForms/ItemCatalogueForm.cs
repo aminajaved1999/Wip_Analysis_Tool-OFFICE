@@ -10,6 +10,7 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
 using WIPAT.Helpers;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 
 namespace WIPAT
 {
@@ -64,32 +65,6 @@ namespace WIPAT
             UITheme.StyleButton(btnExport, AppButtonStyle.ExportToExcel);
             UITheme.StyleButton(btnCommitToDb, AppButtonStyle.ApproveAndSave);
             UITheme.StyleButton(btnSearch, AppButtonStyle.Search);
-        }
-
-        private void DgvItems_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
-        {
-            if (e.RowIndex >= 0 && dgvItems.Columns[e.ColumnIndex].Name == "ItemStatus" && e.Value != null && e.Value != DBNull.Value)
-            {
-                if (int.TryParse(e.Value.ToString(), out int statusVal))
-                {
-                    switch (statusVal)
-                    {
-                        case 0:
-                            e.Value = "Inactive";
-                            e.CellStyle.ForeColor = Color.DarkGray;
-                            break;
-                        case 1:
-                            e.Value = "Active";
-                            e.CellStyle.ForeColor = Color.Green;
-                            break;
-                        case 2:
-                            e.Value = "Invalid";
-                            e.CellStyle.ForeColor = Color.Red;
-                            break;
-                    }
-                    e.FormattingApplied = true;
-                }
-            }
         }
 
         private void UpdateUIState()
@@ -207,35 +182,66 @@ namespace WIPAT
         private void BindGrid(IEnumerable<ItemCatalogueDto> data)
         {
             DataTable table = new DataTable();
-            table.Columns.Add("Casin", typeof(string));
-            table.Columns.Add("Model", typeof(string));
-            table.Columns.Add("Description", typeof(string));
-            table.Columns.Add("ColorName", typeof(string));
-            table.Columns.Add("Size", typeof(string));
-            table.Columns.Add("PCPK", typeof(int));
-            table.Columns.Add("CasePackQty", typeof(int));
-            table.Columns.Add("OpeningStock", typeof(int));
-            table.Columns.Add("ItemStatus", typeof(int));
 
+            // 1. Fetch dynamic template definitions
+            var exportTemplate = FileTemplateFactory.GetExportTemplate(ExportExcelFileType.ExportItemsCatalogue);
+
+            // 2. Build columns dynamically based on the master catalogue
+            foreach (var rule in exportTemplate)
+            {
+                Type dotNetType = GetDotNetType(rule.Definition.DataType);
+                table.Columns.Add(rule.Definition.Name, dotNetType);
+            }
+
+            // 3. Populate rows matching the template layout
             foreach (var item in data)
             {
-                table.Rows.Add(
-                    item.Casin,
-                    item.Model,
-                    item.Description,
-                    item.ColorName,
-                    item.Size,
-                    item.PCPK,
-                    item.CasePackQty,
-                    item.OpeningStock,
-                    item.ItemStatus
-                );
+                DataRow row = table.NewRow();
+                foreach (var rule in exportTemplate)
+                {
+                    string colName = rule.Definition.Name;
+                    row[colName] = GetColumnValue(item, colName) ?? DBNull.Value;
+                }
+                table.Rows.Add(row);
             }
 
             _bindingSource.DataSource = table;
             dgvItems.DataSource = _bindingSource;
 
             UpdateDisplayCounts();
+        }
+
+        // Helper mapping: Convert System Vocabulary Enum to .NET Type
+        private Type GetDotNetType(ExcelDataType dataType)
+        {
+            switch (dataType)
+            {
+                case ExcelDataType.Int: return typeof(int);
+                case ExcelDataType.Decimal: return typeof(decimal);
+                case ExcelDataType.DateTime: return typeof(DateTime);
+                case ExcelDataType.Boolean: return typeof(bool);
+                case ExcelDataType.String:
+                default: return typeof(string);
+            }
+        }
+
+        // Helper mapping: Extract property values dynamically
+        private object GetColumnValue(ItemCatalogueDto item, string columnName)
+        {
+            switch (columnName)
+            {
+                case "CASIN": return item.Casin;
+                case "Model": return item.Model;
+                case "Description": return item.Description;
+                case "ColorName": return item.ColorName;
+                case "Size": return item.Size;
+                case "PC/PK": return item.PCPK;
+                case "CasePackQty": return item.CasePackQty;
+                case "OpeningStock": return item.OpeningStock;
+                case "Notes": return item.Notes;
+                case "ItemStatus": return item.ItemStatus.ToString(); // Converted to string per the Master Catalogue definition
+                default: return null;
+            }
         }
 
         private void UpdateDisplayCounts()
@@ -396,8 +402,8 @@ namespace WIPAT
                     {
                         SetStatus("Exporting data to Excel...", StatusType.Warning);
 
-                        // If ExportGridToExcel is synchronous but heavy, 
-                        // running it on Task.Run keeps the UI from freezing while disabled.
+                        // Because dgvItems is now securely generated using the ExportItemsCatalogue template,
+                        // exporting the grid structure inherently adheres to your dynamic layout requirements.
                         Response<string> response = await Task.Run(() => _excelService.ExportGridToExcel(dgvItems, sfd.FileName, "Items"));
 
                         if (response.Success)

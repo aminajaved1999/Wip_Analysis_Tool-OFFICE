@@ -23,6 +23,7 @@ namespace WIPAT.DAL.Interfaces
         bool IsCAsinExistInCatalogue(string casin);
         //Task<bool?> CheckCAsinStatus(string casin);
         Task<int?> CheckCAsinStatus(string casin);
+        Task<Dictionary<string, int>> GetCasinStatusesBatchAsync(IEnumerable<string> casins);
         Task<Response<bool>> IsCasinExistInCatalogueAndInitialStock(string casin);
         Task<Response<bool>> IsItemExistInCatalogue(string asin);
         //Add / Update Methods

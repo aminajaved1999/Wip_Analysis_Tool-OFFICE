@@ -250,7 +250,6 @@ namespace WIPAT
             this.previewGrid.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
             this.previewGrid.Size = new System.Drawing.Size(1000, 459);
             this.previewGrid.TabIndex = 2;
-            this.previewGrid.CellFormatting += new System.Windows.Forms.DataGridViewCellFormattingEventHandler(this.PreviewGrid_CellFormatting);
             this.previewGrid.DataBindingComplete += new System.Windows.Forms.DataGridViewBindingCompleteEventHandler(this.PreviewGrid_DataBindingComplete);
             // 
             // ExportForm

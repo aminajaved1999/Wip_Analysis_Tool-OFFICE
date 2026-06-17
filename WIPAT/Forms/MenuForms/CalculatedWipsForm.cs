@@ -11,6 +11,7 @@ using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
 using WIPAT.Helpers;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 
 namespace WIPAT
 {
@@ -67,56 +68,6 @@ namespace WIPAT
             UITheme.StyleButton(btnSearch, AppButtonStyle.Search);
 
             UITheme.StyleGrid(dgvWipDetails, isValid: true);
-        }
-
-        private void DataGridView_ItemStatus_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
-        {
-            var dgv = sender as DataGridView;
-            if (dgv != null && e.ColumnIndex >= 0 && e.RowIndex >= 0 && e.Value != null && e.Value != DBNull.Value)
-            {
-                string colName = dgv.Columns[e.ColumnIndex].Name;
-
-                if (colName == "ItemStatus")
-                {
-                    string valStr = e.Value.ToString().Trim();
-
-                    if (int.TryParse(valStr, out int statusVal))
-                    {
-                        switch (statusVal)
-                        {
-                            case 0:
-                                e.Value = "Inactive";
-                                e.CellStyle.ForeColor = Color.DarkGray;
-                                break;
-                            case 1:
-                                e.Value = "Active";
-                                e.CellStyle.ForeColor = Color.Green;
-                                break;
-                            case 2:
-                                e.Value = "Invalid";
-                                e.CellStyle.ForeColor = Color.Red;
-                                break;
-                        }
-                        e.FormattingApplied = true;
-                    }
-                    else
-                    {
-                        // Fallback safely just in case it is already parsed as string
-                        if (valStr.Equals("Inactive", StringComparison.OrdinalIgnoreCase))
-                        {
-                            e.CellStyle.ForeColor = Color.DarkGray;
-                        }
-                        else if (valStr.Equals("Active", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Valid", StringComparison.OrdinalIgnoreCase))
-                        {
-                            e.CellStyle.ForeColor = Color.Green;
-                        }
-                        else if (valStr.Equals("Invalid", StringComparison.OrdinalIgnoreCase) || valStr.Equals("Missing", StringComparison.OrdinalIgnoreCase))
-                        {
-                            e.CellStyle.ForeColor = Color.Red;
-                        }
-                    }
-                }
-            }
         }
 
         private void UpdateUIState()
@@ -204,19 +155,63 @@ namespace WIPAT
         private void BindGrid(IEnumerable<WipDetail> data)
         {
             DataTable table = new DataTable();
-            table.Columns.Add("CASIN", typeof(string));
-            table.Columns.Add("WIP_Quantity", typeof(int));
-            table.Columns.Add("ItemStatus", typeof(int));
 
-            foreach (var d in data)
+            // 1. Fetch dynamic template definitions for ExportWip
+            var exportTemplate = FileTemplateFactory.GetExportTemplate(ExportExcelFileType.ExportWip);
+
+            // 2. Build columns dynamically based on the master catalogue
+            foreach (var rule in exportTemplate)
             {
-                table.Rows.Add(d.CASIN, d.WipQuantity ?? (object)DBNull.Value, d.ItemStatus);
+                Type dotNetType = rule.Definition.DataType.ToDotNetType();
+                table.Columns.Add(rule.Definition.Name, dotNetType);
+            }
+
+            // 3. Populate rows matching the template layout
+            foreach (var item in data)
+            {
+                DataRow row = table.NewRow();
+                foreach (var rule in exportTemplate)
+                {
+                    string colName = rule.Definition.Name;
+                    row[colName] = GetColumnValue(item, colName) ?? DBNull.Value;
+                }
+                table.Rows.Add(row);
             }
 
             _bindingSource.DataSource = table;
             dgvWipDetails.DataSource = _bindingSource;
 
             UpdateDisplayCounts();
+        }
+
+        // Helper method to map ExcelDataType to .NET Types
+        private Type GetDotNetType(ExcelDataType dataType)
+        {
+            switch (dataType)
+            {
+                case ExcelDataType.String: return typeof(string);
+                case ExcelDataType.Int: return typeof(int);
+                case ExcelDataType.Decimal: return typeof(decimal);
+                case ExcelDataType.DateTime: return typeof(DateTime);
+                case ExcelDataType.Boolean: return typeof(bool);
+                default: return typeof(string);
+            }
+        }
+
+        // Helper method to map WipDetail properties to your Master Catalogue column names
+        private object GetColumnValue(WipDetail item, string columnName)
+        {
+            switch (columnName)
+            {
+                case "CASIN":
+                    return item.CASIN;
+                case "WIP Quantity": // Matches the string name defined in MasterColumnCatalogue.WipQuantity
+                    return item.WipQuantity;
+                case "ItemStatus":
+                    return item.ItemStatus;
+                default:
+                    return null;
+            }
         }
 
         private void UpdateDisplayCounts()
@@ -385,9 +380,9 @@ namespace WIPAT
 
             try
             {
-                var exportData = _currentWipData.Select(d => new { d.CASIN, d.WipQuantity }).ToList();
+                var exportData = _currentWipData.Select(d => new { d.CASIN, d.WipQuantity, d.ItemStatus }).ToList();
                 string periodLabel = $"{_selectedMonth} {_selectedYear}";
-                string fileName = $"{periodLabel}-Wip.xlsx";
+                string fileName = $"{periodLabel}_{DateTime.Now:yyyyMMdd}.xlsx";
                 string worksheetName = $"{periodLabel}-Wip";
 
                 _excelService.ExportWipDataToExcel(exportData, fileName, worksheetName);
@@ -622,7 +617,7 @@ namespace WIPAT
                     BackColor = UITheme.BackgroundCanvas
                 };
 
-                // NEW: Use BindingSource for the popup form
+                // Use BindingSource for the popup form
                 var bsPopup = new BindingSource { DataSource = table };
 
                 var dgv = new DataGridView
@@ -633,9 +628,6 @@ namespace WIPAT
                     MultiSelect = true,
                     DataSource = bsPopup
                 };
-
-                // Colorize the approval form too!
-                dgv.CellFormatting += DataGridView_ItemStatus_CellFormatting;
 
                 UITheme.StyleGrid(dgv);
 
@@ -736,7 +728,7 @@ namespace WIPAT
                         if (resp.Success)
                         {
                             MessageBox.Show("WIP changes approved and forecast synchronized successfully!",
-                                                "Approval Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                            "Approval Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                             form.DialogResult = DialogResult.OK;
                             form.Close();
@@ -764,7 +756,7 @@ namespace WIPAT
                     });
                 };
 
-                // UPDATED: Now uses BindingSource filter instead of DataTable clone
+                // Now uses BindingSource filter instead of DataTable clone
                 btnSearchPopup.Click += (s, e) =>
                 {
                     string searchValue = txtSearchPopup.Text.Trim().Replace("'", "''");

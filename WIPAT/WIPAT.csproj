@@ -201,6 +201,9 @@
     <EmbeddedResource Include="Forms\MenuForms\CalculatedWipsForm.resx">
       <DependentUpon>CalculatedWipsForm.cs</DependentUpon>
     </EmbeddedResource>
+    <EmbeddedResource Include="Forms\OtherForms\TestTemplateUploadForm.resx">
+      <DependentUpon>TestTemplateUploadForm.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="Forms\WorkflowForms\ExportForm.resx">
       <DependentUpon>ExportForm.cs</DependentUpon>
     </EmbeddedResource>

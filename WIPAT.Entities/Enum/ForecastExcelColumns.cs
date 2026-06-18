@@ -9,16 +9,16 @@ namespace WIPAT.Entities.Enum
 {
     public enum ForecastExcelColumns
     {
-        [Description("C-ASIN")]
+        [Description("CASIN")]
         CASIN,
 
-        [Description("Requested Quantity")]
+        [Description("RequestedQuantity")]
         Requested_Quantity,
 
-        [Description("Commitment period")]
+        [Description("CommitmentPeriod")]
         Commitment_Period,
 
-        [Description("PO date")]
+        [Description("PO Date")]
         PO_Date,
 
         ProjectionMonth,

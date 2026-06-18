@@ -377,7 +377,7 @@ namespace WIPAT.BLL.Manager
         private void AddDataTableColumns(DataTable result, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, string wipType, bool checkBoxCasePack, int? MOQ)
         {
             // Common Columns
-            result.Columns.Add("C-ASIN", typeof(string));
+            result.Columns.Add("CASIN", typeof(string));
             result.Columns.Add("Month", typeof(string));
             result.Columns.Add("Year", typeof(string));
             result.Columns.Add("PO_Date", typeof(DateTime));
@@ -425,7 +425,7 @@ namespace WIPAT.BLL.Manager
             int delta = qty2 - qty1;
 
             DataRow newRow = result.NewRow();
-            newRow["C-ASIN"] = asin;
+            newRow["CASIN"] = asin;
             newRow["Month"] = pODate.ToString("MMMM");
             newRow["Year"] = pODate.ToString("yyyy");
             newRow["PO_Date"] = pODate;
@@ -760,7 +760,7 @@ namespace WIPAT.BLL.Manager
 
                 foreach (DataRow row in finalDataTable.Rows)
                 {
-                    string casin = row["C-Asin"]?.ToString()?.Trim();
+                    string casin = row["CASIN"]?.ToString()?.Trim();
                     string cPeriod = row[$"CommitmentPeriod ({session.Month})"]?.ToString()?.Trim();
 
                     if (string.IsNullOrEmpty(casin) || string.IsNullOrEmpty(cPeriod))

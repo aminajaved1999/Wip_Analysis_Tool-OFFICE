@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.Entities;
 using WIPAT.Entities.Enum;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 using WIPAT.Helpers;
 using LicenseContext = OfficeOpenXml.LicenseContext;
 
@@ -128,8 +129,8 @@ namespace WIPAT
                 }
                 else
                 {
-                    _bindingSource.Filter = string.Format("[C-ASIN] LIKE '%{0}%'", searchValue);
-                    SetStatus($"Filtered by C-ASIN containing: {searchValue}", StatusType.Success);
+                    _bindingSource.Filter = string.Format("[CASIN] LIKE '%{0}%'", searchValue);
+                    SetStatus($"Filtered by CASIN containing: {searchValue}", StatusType.Success);
                 }
             }
             catch (Exception ex)
@@ -168,10 +169,10 @@ namespace WIPAT
             previewGrid.DataSource = _bindingSource;
         }
 
-        private DataTable GenerateExportDataTable(DataTable sourceTable)
+        private DataTable _GenerateExportDataTable(DataTable sourceTable)
         {
             DataTable dtExport = new DataTable();
-            dtExport.Columns.Add("C-ASIN", typeof(string));
+            dtExport.Columns.Add("CASIN", typeof(string));
             // Explicitly dropped "IsActive"
             dtExport.Columns.Add("ItemStatus", typeof(string));
             dtExport.Columns.Add("Month", typeof(string));
@@ -194,7 +195,7 @@ namespace WIPAT
 
             foreach (DataRow r in sourceTable.Rows)
             {
-                string asin = r["C-ASIN"]?.ToString();
+                string asin = r["CASIN"]?.ToString();
 
                 string itemStatusText = "Unknown";
                 if (sourceTable.Columns.Contains("ItemStatus") && r["ItemStatus"] != DBNull.Value)
@@ -237,6 +238,137 @@ namespace WIPAT
 
                 // Add row without IsActive
                 dtExport.Rows.Add(asin, itemStatusText, month, year, wipQty, cpStr, currentForecastMonth, currentForecastYear, casePackVal, typeText, userName);
+            }
+
+            return dtExport;
+        }
+        private DataTable GenerateExportDataTable(DataTable sourceTable)
+        {
+            DataTable dtExport = new DataTable();
+
+            // 1. Fetch the template for ExportFinalCalculatedWip
+            var exportTemplate = FileTemplateFactory.GetExportTemplate(ExportExcelFileType.ExportFinalCalculatedWip);
+
+            // 2. Build Columns Dynamically based on the template definitions
+            foreach (var rule in exportTemplate)
+            {
+                // Explicitly drop "IsActive" to maintain your previous requirement
+                if (rule.Definition.Name == MasterColumnCatalogue.IsActive.Name)
+                    continue;
+
+                // Add column using the exact name and strongly-typed .NET data type defined in your catalogue
+                dtExport.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
+            }
+
+            string wipCol = DetermineWipColumn(sourceTable);
+
+            var parts = (_session.CurrentMonthWithYear ?? "").Split(' ');
+            string currentForecastMonth = parts.Length > 0 ? parts[0] : "";
+            string currentForecastYear = parts.Length > 1 ? parts[1] : "";
+
+            string userName = _currentUser?.UserName ?? "System";
+
+            // 3. Populate Rows safely using column names
+            foreach (DataRow r in sourceTable.Rows)
+            {
+                DataRow newRow = dtExport.NewRow();
+
+                // CASIN
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.Casin.Name))
+                    newRow[MasterColumnCatalogue.Casin.Name] = r[MasterColumnCatalogue.Casin.Name] == DBNull.Value ? null : r[MasterColumnCatalogue.Casin.Name].ToString();
+
+                // ItemStatus (Calculated)
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.ItemStatus.Name))
+                {
+                    string itemStatusText = "Unknown";
+                    if (sourceTable.Columns.Contains(MasterColumnCatalogue.ItemStatus.Name) && r[MasterColumnCatalogue.ItemStatus.Name] != DBNull.Value)
+                    {
+                        if (int.TryParse(r[MasterColumnCatalogue.ItemStatus.Name].ToString(), out int statVal))
+                        {
+                            switch (statVal)
+                            {
+                                case 0: itemStatusText = "Inactive"; break;
+                                case 1: itemStatusText = "Active"; break;
+                                case 2: itemStatusText = "Invalid"; break;
+                            }
+                        }
+                        else
+                        {
+                            itemStatusText = r[MasterColumnCatalogue.ItemStatus.Name].ToString();
+                        }
+                    }
+                    newRow[MasterColumnCatalogue.ItemStatus.Name] = itemStatusText;
+                }
+
+                // Month
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.MonthString.Name))
+                    newRow[MasterColumnCatalogue.MonthString.Name] = r[MasterColumnCatalogue.MonthString.Name] == DBNull.Value ? null : r[MasterColumnCatalogue.MonthString.Name].ToString();
+
+                // Year (Parses to Int based on MasterColumnCatalogue)
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.Year.Name))
+                {
+                    if (r[MasterColumnCatalogue.Year.Name] != DBNull.Value && int.TryParse(r[MasterColumnCatalogue.Year.Name].ToString(), out int yearVal))
+                        newRow[MasterColumnCatalogue.Year.Name] = yearVal;
+                }
+
+                // WIP Quantity (Parses to Int)
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.WipQuantity.Name))
+                {
+                    string wipQtyStr = string.IsNullOrEmpty(wipCol) ? "" : r[wipCol]?.ToString();
+                    if (int.TryParse(wipQtyStr, out int wipQty))
+                        newRow[MasterColumnCatalogue.WipQuantity.Name] = wipQty;
+                }
+
+                // CommitmentPeriod (Parses to Int)
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.CommitmentPeriod.Name))
+                {
+                    // Note: Keep the dynamic string interpolation here since it's reading FROM the source table
+                    string cpStr = r[$"CommitmentPeriod ({_session.Curr.Month})"]?.ToString() ?? "0";
+                    if (int.TryParse(cpStr, out int cpVal))
+                        newRow[MasterColumnCatalogue.CommitmentPeriod.Name] = cpVal;
+                }
+
+                // Issued Month
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.IssuedMonth.Name))
+                    newRow[MasterColumnCatalogue.IssuedMonth.Name] = currentForecastMonth;
+
+                // Issued Year (Parses to Int)
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.IssuedYear.Name))
+                {
+                    if (int.TryParse(currentForecastYear, out int issuedYear))
+                        newRow[MasterColumnCatalogue.IssuedYear.Name] = issuedYear;
+                }
+
+                // CasePack (Parses to Int)
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.CasePack.Name))
+                {
+                    if (sourceTable.Columns.Contains(MasterColumnCatalogue.CasePack.Name) && r[MasterColumnCatalogue.CasePack.Name] != DBNull.Value)
+                    {
+                        if (int.TryParse(r[MasterColumnCatalogue.CasePack.Name].ToString(), out int cp))
+                            newRow[MasterColumnCatalogue.CasePack.Name] = cp;
+                    }
+                }
+
+                // WIP Type (Calculated String)
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.WipType.Name))
+                {
+                    string typeText = _session.WipType ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(_session.WipProcessingType))
+                        typeText += $"-{_session.WipProcessingType}";
+
+                    if (sourceTable.Columns.Contains("MOQ") && r["MOQ"] != DBNull.Value)
+                    {
+                        var moq = r["MOQ"]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(moq)) typeText += $"-MOQ ({moq})";
+                    }
+                    newRow[MasterColumnCatalogue.WipType.Name] = typeText;
+                }
+
+                // Calculated By
+                if (dtExport.Columns.Contains(MasterColumnCatalogue.CalculatedBy.Name))
+                    newRow[MasterColumnCatalogue.CalculatedBy.Name] = userName;
+
+                dtExport.Rows.Add(newRow);
             }
 
             return dtExport;

@@ -10,7 +10,7 @@ namespace WIPAT.Entities
     public static class AllColumnNames
     {
         // Column constants
-        public const string CAsin = "C-ASIN";
+        public const string CAsin = "CASIN";
         public const string Model = "Model";
         public const string Description = "Description";
         public const string ColorName = "Color Name";

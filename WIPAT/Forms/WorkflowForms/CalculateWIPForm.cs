@@ -485,10 +485,10 @@ namespace WIPAT
 
                 foreach (DataRow sourceRow in newSourceTableForWipValues.Rows)
                 {
-                    string cAsin = sourceRow["C-ASIN"]?.ToString()?.Trim();
+                    string cAsin = sourceRow["CASIN"]?.ToString()?.Trim();
                     string reviewWip = sourceRow["Review_Wip"]?.ToString()?.Trim();
 
-                    var targetRow = updatedTable.AsEnumerable().FirstOrDefault(r => r["C-ASIN"].ToString() == cAsin);
+                    var targetRow = updatedTable.AsEnumerable().FirstOrDefault(r => r["CASIN"].ToString() == cAsin);
 
                     if (targetRow != null)
                     {
@@ -549,7 +549,7 @@ namespace WIPAT
 
                         string colName = dgv.Columns[e.ColumnIndex].Name;
 
-                        if (colName == "C-ASIN")
+                        if (colName == "CASIN")
                         {
                             var val = e.Value.ToString();
                             e.CellStyle.BackColor = GenerateColorFromString(val);
@@ -583,7 +583,7 @@ namespace WIPAT
 
                         int t = 0, a = 0, i = 0, inv = 0;
                         bool hasStatusCol = dgv.Columns.Contains("ItemStatus");
-                        bool hasCasinCol = dgv.Columns.Contains("C-ASIN");
+                        bool hasCasinCol = dgv.Columns.Contains("CASIN");
 
                         if (hasCasinCol && hasStatusCol)
                         {
@@ -594,7 +594,7 @@ namespace WIPAT
                             {
                                 if (r.IsNewRow) continue;
 
-                                var casinCell = r.Cells["C-ASIN"].Value?.ToString();
+                                var casinCell = r.Cells["CASIN"].Value?.ToString();
                                 if (string.IsNullOrWhiteSpace(casinCell)) continue;
 
                                 // Only process the status count for each CASIN once!
@@ -630,7 +630,7 @@ namespace WIPAT
 
                     btnSearch.Click += (s, e) => {
                         string term = txtSearch.Text.Replace("'", "''");
-                        stockTable.DefaultView.RowFilter = string.IsNullOrWhiteSpace(term) ? "" : $"[C-ASIN] LIKE '%{term}%'";
+                        stockTable.DefaultView.RowFilter = string.IsNullOrWhiteSpace(term) ? "" : $"[CASIN] LIKE '%{term}%'";
                         updateStats();
                     };
 

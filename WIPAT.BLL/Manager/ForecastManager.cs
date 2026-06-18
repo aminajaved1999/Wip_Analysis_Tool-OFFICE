@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.IO;
 using System.Linq;
@@ -215,34 +216,27 @@ namespace WIPAT.BLL.Managers
 
         #region Private Helper Methods (The Core Logic)
 
-        private async Task<Response<ForecastFileData>> ProcessForecastFileInternal(string filePath, int commitmentPeriod, bool isFirstFile)
+        private async Task<Response<ForecastFileData>> _ProcessForecastFileInternal(string filePath, int commitmentPeriod, bool isFirstFile)
         {
             var response = new Response<ForecastFileData>();
-
-            //var requiredColumns = new List<string>
-            //{
-            //    _excelService.GetEnumValue(ForecastExcelColumns.CASIN),
-            //    _excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity),
-            //    _excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period),
-            //    _excelService.GetEnumValue(ForecastExcelColumns.PO_Date),
-            //    ForecastExcelColumns.ProjectionMonth.ToString(),
-            //    ForecastExcelColumns.ProjectionYear.ToString()
-            //};
 
 
             // 1. Get the list of ColumnRule objects
             var requiredExcelColumns = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.ForecastFile);
 
-            // Define the columns you want to ignore
+            // Define the columns you want to ignore for validation
             var excludedColumns = new[] { "Month", "Year", "ItemStatus" };
 
-            // 2. Extract the Name, filter out the unwanted ones, and convert to a List<string>
+            // Extract the Name, filter out the unwanted ones, and convert to a List<string>
             List<string> requiredColumns = requiredExcelColumns
                 .Select(rule => rule.Definition.Name)
                 .Where(name => !excludedColumns.Contains(name))
                 .ToList();
-            string sheetName = _excelService.GetEnumValue(ExcelSheetNames.Forecast);
 
+            //3. Determine worksheet name dynamically based on App.config keys
+            string sheetName = ConfigurationManager.AppSettings["ForecastWorksheetName"] ?? "Vendor Central Excel Output";
+
+            // 4. validate the excel file
             var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Forecast.ToString(), sheetName, requiredColumns);
             if (!valRes.Success)
             {
@@ -283,8 +277,8 @@ namespace WIPAT.BLL.Managers
                 ? allDbItemsRes.Data.GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase)
                 : new Dictionary<string, ItemCatalogue>(StringComparer.OrdinalIgnoreCase);
 
-            string projMonthStr = rawTable.Rows[0][ForecastExcelColumns.ProjectionMonth.ToString()]?.ToString();
-            string projYearStr = rawTable.Rows[0][ForecastExcelColumns.ProjectionYear.ToString()]?.ToString();
+            string projMonthStr = rawTable.Rows[0][MasterColumnCatalogue.ProjectionMonth.Name]?.ToString();
+            string projYearStr = rawTable.Rows[0][MasterColumnCatalogue.ProjectionYear.Name]?.ToString();
 
             if (!int.TryParse(projMonthStr, out int pMonth) || !int.TryParse(projYearStr, out int pYear))
             {
@@ -298,14 +292,14 @@ namespace WIPAT.BLL.Managers
 
             foreach (DataRow row in rawTable.Rows)
             {
-                string casin = row[_excelService.GetEnumValue(ForecastExcelColumns.CASIN)].ToString().Trim();
+                string casin = row[MasterColumnCatalogue.Casin.Name].ToString().Trim();
                 if (string.IsNullOrEmpty(casin)) continue;
 
                 var newRow = processedTable.NewRow();
 
                 foreach (var col in requiredColumns) newRow[col] = row[col];
 
-                if (DateTime.TryParse(row[_excelService.GetEnumValue(ForecastExcelColumns.PO_Date)].ToString(), out DateTime poDate))
+                if (DateTime.TryParse(row[MasterColumnCatalogue.PODate.Name].ToString(), out DateTime poDate))
                 {
                     newRow["Month"] = poDate.ToString("MMMM");
                     newRow["Year"] = poDate.Year.ToString();
@@ -350,15 +344,105 @@ namespace WIPAT.BLL.Managers
             return response;
         }
 
+        private async Task<Response<ForecastFileData>> ProcessForecastFileInternal(string filePath, int commitmentPeriod, bool isFirstFile)
+        {
+            var response = new Response<ForecastFileData>();
+
+            // 1. Get the list of ColumnRule objects
+            var requiredExcelColumns = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.ForecastFile);
+
+            // Define the columns you want to ignore for validation
+            var excludedColumns = new[] { "Month", "Year", "ItemStatus" };
+
+            // Extract the Name, filter out the unwanted ones, and convert to a List<string>
+            List<string> requiredColumns = requiredExcelColumns
+                .Select(rule => rule.Definition.Name)
+                .Where(name => !excludedColumns.Contains(name))
+                .ToList();
+
+            // 3. Determine worksheet name dynamically based on App.config keys
+            string sheetName = ConfigurationManager.AppSettings["ForecastWorksheetName"] ?? "Vendor Central Excel Output";
+
+            // 4. validate the excel file
+            var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Forecast.ToString(), sheetName, requiredColumns);
+            if (!valRes.Success)
+            {
+                response.Success = false;
+                response.Message = valRes.Message;
+                response.Data = new ForecastFileData
+                {
+                    DeactivatedItems = valRes.DeactivatedItems,
+                    MissingItems = valRes.MissingItems,
+                    ProblemItemsTable = valRes.ProblemItemsTable
+                };
+                return response;
+            }
+
+            var readRes = _excelService.ReadExcelToDataTable(filePath, sheetName, requiredColumns);
+            if (!readRes.Success)
+            {
+                return new Response<ForecastFileData> { Success = false, Message = readRes.Message };
+            }
+
+            DataTable rawTable = readRes.Data;
+
+            if (rawTable.Rows.Count == 0)
+            {
+                return new Response<ForecastFileData> { Success = false, Message = "File is empty." };
+            }
+
+            // 5. Fetch DB Items for Lookup
+            var allDbItemsRes = await _itemsRepository.GetActiveItemCatalogues(true);
+            var allDbItems = allDbItemsRes.Success && allDbItemsRes.Data != null
+                ? allDbItemsRes.Data.GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, ItemCatalogue>(StringComparer.OrdinalIgnoreCase);
+
+            // 6. Header Validation & Meta Data Extraction
+            string projMonthStr = rawTable.Rows[0][MasterColumnCatalogue.ProjectionMonth.Name]?.ToString();
+            string projYearStr = rawTable.Rows[0][MasterColumnCatalogue.ProjectionYear.Name]?.ToString();
+
+            if (!int.TryParse(projMonthStr, out int pMonth) || !int.TryParse(projYearStr, out int pYear))
+            {
+                return new Response<ForecastFileData> { Success = false, Message = "Invalid Projection Month/Year in file header." };
+            }
+
+            DateTime projectionDate = new DateTime(pYear, pMonth, 1);
+            string ProjectionMonth = projectionDate.ToString("MMMM");
+            string ProjectionYear = projectionDate.ToString("yyyy");
+            string forecastFor = projectionDate.AddMonths(commitmentPeriod + 1).ToString("MMMM yyyy");
+
+            // 7. Get Processed DataTable via Factory
+            var processedTable = new DataTableFactory().CreateProcessedForecastTable(rawTable, requiredColumns, allDbItems);
+
+            // 8. Generate Missing Items
+            await GenerateMissingItemsAsync(processedTable, commitmentPeriod, isFirstFile, valRes.IsContinueWithInactiveItems);
+
+            response.Success = true;
+            response.Data = new ForecastFileData
+            {
+                FileName = Path.GetFileName(filePath),
+                FilePath = filePath,
+                FullTable = processedTable,
+                FilteredTable = processedTable.Copy(),
+                ProjectionMonth = ProjectionMonth,
+                ProjectionYear = ProjectionYear,
+                ForecastFor = forecastFor,
+                IsContinueWithInactiveItems = valRes.IsContinueWithInactiveItems,
+                ProblemItemsTable = valRes.ProblemItemsTable,
+            };
+
+            return response;
+        }
+
         private async Task GenerateMissingItemsAsync(DataTable table, int commitmentPeriod, bool isFirstFile, bool includeInactiveItems)
         {
             var distinctSchedules = table.AsEnumerable()
                 .Select(r => new
                 {
-                    Period = r[_excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period)].ToString(),
-                    PODate = r[_excelService.GetEnumValue(ForecastExcelColumns.PO_Date)].ToString(),
-                    Month = r["Month"].ToString(),
-                    Year = r["Year"].ToString()
+                    Period = r[MasterColumnCatalogue.CommitmentPeriod.Name].ToString(),
+                    PODate = r[MasterColumnCatalogue.PODate.Name].ToString(),
+                    Month = r[MasterColumnCatalogue.MonthString.Name].ToString(),
+                    Year = r[MasterColumnCatalogue.Year.Name].ToString()
                 })
                 .Distinct()
                 .OrderBy(x => int.TryParse(x.Period, out int p) ? p : 999)
@@ -374,7 +458,7 @@ namespace WIPAT.BLL.Managers
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             var fileCasins = table.AsEnumerable()
-                .Select(r => r["C-ASIN"].ToString().Trim())
+                .Select(r => r[MasterColumnCatalogue.Casin.Name].ToString().Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -386,24 +470,25 @@ namespace WIPAT.BLL.Managers
                 foreach (var schedule in distinctSchedules)
                 {
                     var newRow = table.NewRow();
-                    newRow["CASIN"] = missingCasin;
-                    newRow[_excelService.GetEnumValue(ForecastExcelColumns.Requested_Quantity)] = "0";
-                    newRow[_excelService.GetEnumValue(ForecastExcelColumns.Commitment_Period)] = schedule.Period;
-                    newRow[_excelService.GetEnumValue(ForecastExcelColumns.PO_Date)] = schedule.PODate;
-                    newRow["Month"] = schedule.Month;
-                    newRow["Year"] = schedule.Year;
+                    newRow[MasterColumnCatalogue.Casin.Name] = missingCasin;
+                    newRow[MasterColumnCatalogue.RequestedQuantity.Name] = "0";
+                    newRow[MasterColumnCatalogue.CommitmentPeriod.Name] = schedule.Period;
+                    newRow[MasterColumnCatalogue.PODate.Name] = schedule.PODate;
+                    newRow[MasterColumnCatalogue.MonthString.Name] = schedule.Month;
+                    newRow[MasterColumnCatalogue.Year.Name] = schedule.Year;
 
                     var dbItem = dbCasinDict[missingCasin];
-                    newRow["ItemStatus"] = dbItem.ItemStatus;
+                    newRow[MasterColumnCatalogue.ItemStatus.Name] = dbItem.ItemStatus;
 
-                    newRow[ForecastExcelColumns.ProjectionMonth.ToString()] = "";
-                    newRow[ForecastExcelColumns.ProjectionYear.ToString()] = "";
+                    newRow[MasterColumnCatalogue.ProjectionMonth.Name] = "";
+                    newRow[MasterColumnCatalogue.ProjectionYear.Name] = "";
 
                     table.Rows.Add(newRow);
                     periodIndex++;
                 }
             }
         }
+        
         #endregion
     }
 }

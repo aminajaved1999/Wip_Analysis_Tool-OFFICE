@@ -152,7 +152,7 @@ namespace WIPAT
 
             txt.LostFocus += (s, e) =>
             {
-                if (string.IsNullOrWhiteSpace(txt.Text)) { txt.Text = "Search C-ASIN..."; txt.ForeColor = UITheme.TextSecondaryColor; }
+                if (string.IsNullOrWhiteSpace(txt.Text)) { txt.Text = "Search CASIN..."; txt.ForeColor = UITheme.TextSecondaryColor; }
                 container.BackColor = UITheme.BackgroundCanvas;
                 txt.BackColor = UITheme.BackgroundCanvas;
             };
@@ -609,7 +609,7 @@ namespace WIPAT
 
             return (total, active, inactive, invalid);
         }
-     
+
 
         private void UpdateGridStats(int gridIndex, int total, int active, int inactive, int invalid)
         {
@@ -654,7 +654,7 @@ namespace WIPAT
                 var stats1 = CalculateGridStats(f1.FullTable);
                 UpdateGridStats(1, stats1.Total, stats1.Active, stats1.Inactive, stats1.Invalid);
 
-                string colName1 = f1.FullTable.Columns.Contains("C-ASIN") ? "C-ASIN" : "CASIN";
+                string colName1 = f1.FullTable.Columns.Contains("CASIN") ? "CASIN" : "CASIN";
                 ColorRowsByGroup(dgvForecast1, colName1);
 
                 if (pnlSearch1 != null) pnlSearch1.Visible = true;
@@ -699,7 +699,7 @@ namespace WIPAT
             var stats = CalculateGridStats(dt);
             UpdateGridStats(3, stats.Total, stats.Active, stats.Inactive, stats.Invalid);
 
-            string targetColumn = dt != null && dt.Columns.Contains("C-ASIN") ? "C-ASIN" : (dt != null && dt.Columns.Contains("CASIN") ? "CASIN" : "");
+            string targetColumn = dt != null && dt.Columns.Contains("CASIN") ? "CASIN" : (dt != null && dt.Columns.Contains("CASIN") ? "CASIN" : "");
             if (!string.IsNullOrEmpty(targetColumn))
             {
                 ColorRowsByGroup(dgvOrder, targetColumn);
@@ -712,7 +712,7 @@ namespace WIPAT
             {
                 try
                 {
-                    string targetColumn = dt.Columns.Contains("C-ASIN") ? "C-ASIN" : (dt.Columns.Contains("CASIN") ? "CASIN" : "");
+                    string targetColumn = dt.Columns.Contains("CASIN") ? "CASIN" : (dt.Columns.Contains("CASIN") ? "CASIN" : "");
                     if (string.IsNullOrEmpty(targetColumn)) return;
 
                     string filter = (string.IsNullOrWhiteSpace(searchText) || searchText.StartsWith("Search"))
@@ -904,7 +904,7 @@ namespace WIPAT
 
         private void btnMarkInvalid_Click(object sender, EventArgs e)
         {
-            string asinColName = dgvForecastErrors.Columns.Contains("C-ASIN") ? "C-ASIN" :
+            string asinColName = dgvForecastErrors.Columns.Contains("CASIN") ? "CASIN" :
                                (dgvForecastErrors.Columns.Contains("CASIN") ? "CASIN" : null);
 
             if (string.IsNullOrEmpty(asinColName))

@@ -12,6 +12,7 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 
 namespace WIPAT.BLL.Manager
 {
@@ -423,9 +424,9 @@ namespace WIPAT.BLL.Manager
 
         #region Helper Methods
 
-        private void AddDataTableColumns(DataTable result, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, string wipType, bool checkBoxCasePack, int? MOQ)
+        private void _AddDataTableColumns(DataTable result, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, string wipType, bool checkBoxCasePack, int? MOQ)
         {
-            result.Columns.Add("C-ASIN", typeof(string));
+            result.Columns.Add("CASIN", typeof(string));
             // Removed IsActive, using ItemStatus int
             result.Columns.Add("ItemStatus", typeof(int));
 
@@ -462,8 +463,63 @@ namespace WIPAT.BLL.Manager
                 result.Columns.Add("CasePack", typeof(int));
             }
         }
+        private void AddDataTableColumns(DataTable result, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, string wipType, bool checkBoxCasePack, int? MOQ)
+        {
+            // 1. Fetch the grid configuration from your new dedicated DataTable enum
+            var columnRules = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.WorkingWipCalculationGrid);
 
-        private void AddRowToDataTable(
+            // Evaluate conditions once outside the loop for efficiency
+            bool isLayman = wipType == WipType.LaymanFormula.ToString() || wipType == WipType.Layman.ToString();
+
+            // 2. Iterate through the rules and build the schema
+            foreach (var rule in columnRules)
+            {
+                string columnName = rule.Definition.Name;
+                Type columnType = rule.Definition.DataType.ToDotNetType();
+
+                // --- Apply Dynamic Naming Overrides ---
+                // We match against the static definition name, but inject the dynamic month for the actual DataTable column
+                if (columnName == MasterColumnCatalogue.RequestedQuantityPrev.Name)
+                {
+                    columnName = $"Requested_Quantity ({forecast_last_month.Month})";
+                }
+                else if (columnName == MasterColumnCatalogue.WipPrev.Name)
+                {
+                    columnName = $"Wip ({forecast_last_month.Month})";
+                }
+                else if (columnName == MasterColumnCatalogue.RequestedQuantityCurr.Name)
+                {
+                    columnName = $"Requested_Quantity ({forecast_current_month.Month})";
+                }
+                else if (columnName == MasterColumnCatalogue.CommitmentPeriodCurr.Name)
+                {
+                    columnName = $"CommitmentPeriod ({forecast_current_month.Month})";
+                }
+
+                // --- Handle Conditional Column Exclusions ---
+                // Skip Layman columns if not applicable
+                if (!isLayman && (columnName == MasterColumnCatalogue.Delta.Name || columnName == MasterColumnCatalogue.StockLayman.Name))
+                {
+                    continue;
+                }
+
+                // Skip MOQ columns if MOQ is null
+                if (MOQ == null && (columnName == MasterColumnCatalogue.MoqWip.Name || columnName == MasterColumnCatalogue.MOQ.Name))
+                {
+                    continue;
+                }
+
+                // Skip CasePack columns if not enabled
+                if (!checkBoxCasePack && (columnName == MasterColumnCatalogue.CasePackWip.Name || columnName == MasterColumnCatalogue.CasePack.Name))
+                {
+                    continue;
+                }
+
+                // 3. Add the finalized column to the DataTable
+                result.Columns.Add(columnName, columnType);
+            }
+        }
+        private void _AddRowToDataTable(
        DataTable result, string asin, DateTime pODate, int qty1, object wipOfForecast_last_month,
        int qty2, int commitmentPeriod, int? actualOrderVal, int currentStock, int remainingStock,
        object remainingLaymanValue, object finalWip,
@@ -477,7 +533,7 @@ namespace WIPAT.BLL.Manager
             int delta = qty2 - qty1;
 
             DataRow newRow = result.NewRow();
-            newRow["C-ASIN"] = asin;
+            newRow["CASIN"] = asin;
             newRow["ItemStatus"] = itemStatus;
             newRow["Month"] = pODate.ToString("MMMM");
             newRow["Year"] = pODate.ToString("yyyy");
@@ -508,6 +564,65 @@ namespace WIPAT.BLL.Manager
             {
                 newRow["CasePack_Wip"] = casePackWip ?? DBNull.Value;
                 newRow["CasePack"] = casePack.HasValue ? (object)casePack.Value : DBNull.Value;
+            }
+
+            result.Rows.Add(newRow);
+        }
+        private void AddRowToDataTable(
+    DataTable result, string asin, DateTime pODate, int qty1, object wipOfForecast_last_month,
+    int qty2, int commitmentPeriod, int? actualOrderVal, int currentStock, int remainingStock,
+    object remainingLaymanValue, object finalWip,
+    object moqWip, int? moq, object casePackWip, int? casePack,
+    string wipType, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, int? rawCalculatedWip,
+    double? grossRequirement, double? arriving133percent, int itemStatus)
+        {
+            int delta = qty2 - qty1;
+            DataRow newRow = result.NewRow();
+
+            // 1. Standard Identity & Status
+            newRow[MasterColumnCatalogue.Casin.Name] = asin;
+            newRow[MasterColumnCatalogue.ItemStatus.Name] = itemStatus;
+            newRow[MasterColumnCatalogue.MonthString.Name] = pODate.ToString("MMMM");
+            newRow[MasterColumnCatalogue.Year.Name] = pODate.ToString("yyyy");
+
+            // Graceful handling of default dates
+            newRow[MasterColumnCatalogue.PODate.Name] = pODate == default ? DBNull.Value : (object)pODate;
+
+            // 2. Dynamic Previous/Current Month Columns
+            // These remain dynamic string interpolations to match how they are dynamically named in AddDataTableColumns
+            newRow[$"Requested_Quantity ({forecast_last_month.Month})"] = qty1;
+            newRow[$"Wip ({forecast_last_month.Month})"] = wipOfForecast_last_month ?? DBNull.Value;
+            newRow[$"Requested_Quantity ({forecast_current_month.Month})"] = qty2;
+            newRow[$"CommitmentPeriod ({forecast_current_month.Month})"] = commitmentPeriod;
+
+            // 3. Core Calculation Data
+            newRow[MasterColumnCatalogue.Arriving133Percent.Name] = arriving133percent.HasValue ? (object)arriving133percent.Value : DBNull.Value;
+            newRow[MasterColumnCatalogue.ActualOrder.Name] = actualOrderVal.HasValue ? (object)actualOrderVal.Value : DBNull.Value;
+            newRow[MasterColumnCatalogue.InitialStock.Name] = currentStock;
+            newRow[MasterColumnCatalogue.Stock.Name] = remainingStock;
+            newRow[MasterColumnCatalogue.GrossRequirement.Name] = grossRequirement.HasValue ? (object)Math.Round(grossRequirement.Value, 2) : DBNull.Value;
+            //newRow[MasterColumnCatalogue.ReviewWip.Name] = rawCalculatedWip ?? DBNull.Value;
+            newRow[MasterColumnCatalogue.ReviewWip.Name] = rawCalculatedWip.HasValue ? (object)rawCalculatedWip.Value : DBNull.Value;
+
+            // 4. Conditional Layman Columns
+            if (wipType == WipType.LaymanFormula.ToString() || wipType == WipType.Layman.ToString())
+            {
+                newRow[MasterColumnCatalogue.Delta.Name] = delta;
+                newRow[MasterColumnCatalogue.StockLayman.Name] = remainingLaymanValue ?? DBNull.Value;
+            }
+
+            // 5. Conditional MOQ / CasePack Columns
+            // Now checking the catalogue definition rather than hardcoded strings
+            if (result.Columns.Contains(MasterColumnCatalogue.MOQ.Name))
+            {
+                newRow[MasterColumnCatalogue.MoqWip.Name] = moqWip ?? DBNull.Value;
+                newRow[MasterColumnCatalogue.MOQ.Name] = moq.HasValue ? (object)moq.Value : DBNull.Value;
+            }
+
+            if (result.Columns.Contains(MasterColumnCatalogue.CasePack.Name))
+            {
+                newRow[MasterColumnCatalogue.CasePackWip.Name] = casePackWip ?? DBNull.Value;
+                newRow[MasterColumnCatalogue.CasePack.Name] = casePack.HasValue ? (object)casePack.Value : DBNull.Value;
             }
 
             result.Rows.Add(newRow);
@@ -903,7 +1018,7 @@ namespace WIPAT.BLL.Manager
 
                 foreach (DataRow row in finalDataTable.Rows)
                 {
-                    string casin = row["C-Asin"]?.ToString()?.Trim();
+                    string casin = row["CASIN"]?.ToString()?.Trim();
                     string cPeriod = row[$"CommitmentPeriod ({session.Month})"]?.ToString()?.Trim();
 
                     if (string.IsNullOrEmpty(casin) || string.IsNullOrEmpty(cPeriod))

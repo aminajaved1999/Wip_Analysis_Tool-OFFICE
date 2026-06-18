@@ -23,138 +23,7 @@ namespace WIPAT.DAL
 
         #region Save Imported Files
 
-        public Response<string> _SaveForecastDataToDatabase(ForecastFileData forecastData, bool isFirstFile)
-        {
-            using (var transaction = _context.Database.BeginTransaction())
-            {
-                try
-                {
-                    // 1. Validation Checks
-                    var existingFileRes = IsFileAlreadyImported(forecastData.FileName);
-                    if (existingFileRes.Success)
-                    {
-                        return new Response<string> { Success = false, Message = $"Data with filename '{forecastData.FileName}' already exists. Please use a different file." };
-                    }
-
-                    if (IsProjectionAlreadyExists(forecastData.ProjectionMonth, forecastData.ProjectionYear))
-                    {
-                        return new Response<string> { Success = false, Message = $"Forecast data for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear} already exists." };
-                    }
-
-                    if (IsWipAlreadyCalculated(forecastData.ProjectionMonth, forecastData.ProjectionYear))
-                    {
-                        return new Response<string> { Success = false, Message = $"WIP has already been calculated for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear}. Duplicate calculation is not allowed." };
-                    }
-
-                    // 2. Save Master Record
-                    var master = new ForecastMaster
-                    {
-                        Month = forecastData.ProjectionMonth,
-                        Year = forecastData.ProjectionYear,
-                        ForecastingFor = forecastData.ForecastFor,
-                        FileName = forecastData.FileName,
-                        CreatedBy = Environment.UserName,
-                        CreatedAt = DateTime.Now
-                    };
-
-                    _context.ForecastMasters.Add(master);
-                    _context.SaveChanges();
-                    int masterId = master.Id;
-
-                    // 3. Prepare DataTable for Bulk Insert
-                    var catalogueLookup = _context.ItemCatalogues
-                        .Select(x => new { x.Id, x.Casin, x.ItemStatus })
-                        .ToDictionary(x => x.Casin, x => new { x.Id, x.ItemStatus });
-
-                    DataTable bulkTable = new DataTable();
-                    bulkTable.Columns.Add("ItemCatalogueId", typeof(int));
-                    bulkTable.Columns.Add("CASIN", typeof(string));
-                    bulkTable.Columns.Add("RequestedQuantity", typeof(int));
-                    bulkTable.Columns.Add("Wip", typeof(int));
-                    bulkTable.Columns.Add("CommitmentPeriod", typeof(string));
-                    bulkTable.Columns.Add("PODate", typeof(DateTime));
-                    bulkTable.Columns.Add("Month", typeof(string));
-                    bulkTable.Columns.Add("Year", typeof(string));
-                    bulkTable.Columns.Add("POForecastMasterId", typeof(int));
-                    bulkTable.Columns.Add("IsSystemGenerated", typeof(bool));
-
-                    // REPLACED: IsActive -> ItemStatus (int)
-                    bulkTable.Columns.Add("ItemStatus", typeof(int));
-
-                    foreach (DataRow row in forecastData.FullTable.Rows)
-                    {
-                        var casinValue = row["C-ASIN"].ToString();
-                        var newRow = bulkTable.NewRow();
-
-                        if (catalogueLookup.TryGetValue(casinValue, out var catInfo))
-                        {
-                            newRow["ItemCatalogueId"] = catInfo.Id;
-                            newRow["ItemStatus"] = catInfo.ItemStatus; // Pass the int enum directly
-                        }
-                        else
-                        {
-                            return new Response<string> { Success = false, Message = $"Import failed: The CASIN '{casinValue}' does not exist in the Item Catalogue. Please register it before uploading." };
-                        }
-
-                        newRow["CASIN"] = casinValue;
-                        newRow["RequestedQuantity"] = int.TryParse(row["Requested Quantity"].ToString(), out int qty) ? qty : 0;
-                        newRow["Wip"] = isFirstFile && int.TryParse(row["Wip"].ToString(), out int wipVal) ? wipVal : (object)DBNull.Value;
-                        newRow["CommitmentPeriod"] = row["Commitment period"].ToString();
-                        newRow["PODate"] = DateTime.TryParse(row["PO date"].ToString(), out DateTime poDate) ? poDate : DateTime.MinValue;
-                        newRow["Month"] = row["Month"].ToString();
-                        newRow["Year"] = row["Year"].ToString();
-                        newRow["POForecastMasterId"] = masterId;
-                        newRow["IsSystemGenerated"] = row.Table.Columns.Contains("IsSystemGenerated") && row["IsSystemGenerated"] != DBNull.Value
-                                                      ? Convert.ToBoolean(row["IsSystemGenerated"])
-                                                      : false;
-
-                        bulkTable.Rows.Add(newRow);
-                    }
-
-                    // 4. Execute SQL Bulk Copy
-                    var sqlConnection = (SqlConnection)_context.Database.Connection;
-                    var sqlTransaction = (SqlTransaction)transaction.UnderlyingTransaction;
-                    if (sqlConnection.State != ConnectionState.Open) sqlConnection.Open();
-
-                    using (var sqlBulkCopy = new SqlBulkCopy(sqlConnection, SqlBulkCopyOptions.Default, sqlTransaction))
-                    {
-                        sqlBulkCopy.DestinationTableName = "dbo.ForecastDetails";
-
-                        sqlBulkCopy.ColumnMappings.Add("ItemCatalogueId", "ItemCatalogueId");
-                        sqlBulkCopy.ColumnMappings.Add("CASIN", "CASIN");
-                        sqlBulkCopy.ColumnMappings.Add("RequestedQuantity", "RequestedQuantity");
-                        sqlBulkCopy.ColumnMappings.Add("Wip", "Wip");
-                        sqlBulkCopy.ColumnMappings.Add("CommitmentPeriod", "CommitmentPeriod");
-                        sqlBulkCopy.ColumnMappings.Add("PODate", "PODate");
-                        sqlBulkCopy.ColumnMappings.Add("Month", "Month");
-                        sqlBulkCopy.ColumnMappings.Add("Year", "Year");
-                        sqlBulkCopy.ColumnMappings.Add("POForecastMasterId", "POForecastMasterId");
-                        sqlBulkCopy.ColumnMappings.Add("IsSystemGenerated", "IsSystemGenerated");
-
-                        // REPLACED: Mapped ItemStatus instead of IsActive
-                        sqlBulkCopy.ColumnMappings.Add("ItemStatus", "ItemStatus");
-
-                        sqlBulkCopy.WriteToServer(bulkTable);
-                    }
-
-                    transaction.Commit();
-                    return new Response<string> { Success = true, Message = "Data saved successfully!" };
-                }
-                catch (Exception ex)
-                {
-                    transaction.Rollback();
-                    return new Response<string>
-                    {
-                        Success = false,
-                        Message = $"An unexpected error occurred while saving the initial forecast data to the database: {ex.Message}"
-                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
-                    };
-                }
-            }
-        }
-
-        public Response<string> SaveForecastDataToDatabase(ForecastFileData forecastData, bool isFirstFile, bool IsContinueWithInactiveItems)
+        public Response<string> _SaveForecastDataToDatabase(ForecastFileData forecastData, bool isFirstFile, bool IsContinueWithInactiveItems)
         {
             using (var transaction = _context.Database.BeginTransaction())
             {
@@ -213,7 +82,7 @@ namespace WIPAT.DAL
 
                     foreach (DataRow row in forecastData.FullTable.Rows)
                     {
-                        var casinValue = row["C-ASIN"].ToString();
+                        var casinValue = row["CASIN"].ToString();
                         var newRow = bulkTable.NewRow();
 
                         if (catalogueLookup.TryGetValue(casinValue, out var catInfo))
@@ -227,9 +96,9 @@ namespace WIPAT.DAL
                         }
 
                         newRow["CASIN"] = casinValue;
-                        newRow["RequestedQuantity"] = int.TryParse(row["Requested Quantity"].ToString(), out int qty) ? qty : 0;
-                        newRow["CommitmentPeriod"] = row["Commitment period"].ToString();
-                        newRow["PODate"] = DateTime.TryParse(row["PO date"].ToString(), out DateTime poDate) ? poDate : DateTime.MinValue;
+                        newRow["RequestedQuantity"] = int.TryParse(row["RequestedQuantity"].ToString(), out int qty) ? qty : 0;
+                        newRow["CommitmentPeriod"] = row["CommitmentPeriod"].ToString();
+                        newRow["PODate"] = DateTime.TryParse(row["PO Date"].ToString(), out DateTime poDate) ? poDate : DateTime.MinValue;
                         newRow["Month"] = row["Month"].ToString();
                         newRow["Year"] = row["Year"].ToString();
                         newRow["POForecastMasterId"] = masterId;
@@ -256,6 +125,97 @@ namespace WIPAT.DAL
                         sqlBulkCopy.ColumnMappings.Add("POForecastMasterId", "POForecastMasterId");
 
                         // REPLACED: Mapped ItemStatus instead of IsActive
+                        sqlBulkCopy.ColumnMappings.Add("ItemStatus", "ItemStatus");
+
+                        sqlBulkCopy.WriteToServer(bulkTable);
+                    }
+
+                    transaction.Commit();
+                    return new Response<string> { Success = true, Message = "Data saved successfully!" };
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    return new Response<string>
+                    {
+                        Success = false,
+                        Message = $"An unexpected error occurred while saving forecast data to the database: {ex.Message}"
+                            + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                            + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
+                    };
+                }
+            }
+        }
+        
+        public Response<string> SaveForecastDataToDatabase(ForecastFileData forecastData, bool isFirstFile, bool IsContinueWithInactiveItems)
+        {
+            using (var transaction = _context.Database.BeginTransaction())
+            {
+                try
+                {
+                    // 1. Validation Checks
+                    var existingFileRes = IsFileAlreadyImported(forecastData.FileName);
+                    if (existingFileRes.Success)
+                    {
+                        return new Response<string> { Success = false, Message = $"Data with filename '{forecastData.FileName}' already exists. Please use a different file." };
+                    }
+
+                    if (IsProjectionAlreadyExists(forecastData.ProjectionMonth, forecastData.ProjectionYear))
+                    {
+                        return new Response<string> { Success = false, Message = $"Forecast data for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear} already exists." };
+                    }
+
+                    if (IsWipAlreadyCalculated(forecastData.ProjectionMonth, forecastData.ProjectionYear))
+                    {
+                        return new Response<string> { Success = false, Message = $"WIP has already been calculated for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear}. Duplicate calculation is not allowed." };
+                    }
+
+                    // 2. Save Master Record
+                    var master = new ForecastMaster
+                    {
+                        Month = forecastData.ProjectionMonth,
+                        Year = forecastData.ProjectionYear,
+                        ForecastingFor = forecastData.ForecastFor,
+                        FileName = forecastData.FileName,
+                        CreatedBy = Environment.UserName,
+                        CreatedAt = DateTime.Now,
+                        IsContinueWithInactiveItems = IsContinueWithInactiveItems
+                    };
+
+                    _context.ForecastMasters.Add(master);
+                    _context.SaveChanges();
+                    int masterId = master.Id;
+
+                    // 3. Prepare Lookup (Using ValueTuples to pass to the factory)
+                    var catalogueLookup = _context.ItemCatalogues
+                        .Select(x => new { x.Id, x.Casin, x.ItemStatus })
+                        .ToDictionary(x => x.Casin, x => (x.Id, x.ItemStatus));
+
+                    // 4. Get Fully Populated DataTable from Factory
+                    var (bulkTable, errorMessage) = new DataTableFactory().CreateForecastBulkInsertTable(forecastData.FullTable,masterId, catalogueLookup);
+                    if (errorMessage != null)
+                    {
+                        // If the factory hit a missing CASIN, rollback happens automatically as we exit
+                        return new Response<string> { Success = false, Message = errorMessage };
+                    }
+
+                    // 5. Execute SQL Bulk Copy
+                    var sqlConnection = (SqlConnection)_context.Database.Connection;
+                    var sqlTransaction = (SqlTransaction)transaction.UnderlyingTransaction;
+                    if (sqlConnection.State != ConnectionState.Open) sqlConnection.Open();
+
+                    using (var sqlBulkCopy = new SqlBulkCopy(sqlConnection, SqlBulkCopyOptions.Default, sqlTransaction))
+                    {
+                        sqlBulkCopy.DestinationTableName = "dbo.ForecastDetails";
+
+                        sqlBulkCopy.ColumnMappings.Add("ItemCatalogueId", "ItemCatalogueId");
+                        sqlBulkCopy.ColumnMappings.Add("CASIN", "CASIN");
+                        sqlBulkCopy.ColumnMappings.Add("RequestedQuantity", "RequestedQuantity");
+                        sqlBulkCopy.ColumnMappings.Add("CommitmentPeriod", "CommitmentPeriod");
+                        sqlBulkCopy.ColumnMappings.Add("PODate", "PODate");
+                        sqlBulkCopy.ColumnMappings.Add("Month", "Month");
+                        sqlBulkCopy.ColumnMappings.Add("Year", "Year");
+                        sqlBulkCopy.ColumnMappings.Add("POForecastMasterId", "POForecastMasterId");
                         sqlBulkCopy.ColumnMappings.Add("ItemStatus", "ItemStatus");
 
                         sqlBulkCopy.WriteToServer(bulkTable);
@@ -466,7 +426,7 @@ namespace WIPAT.DAL
                 }
 
                 DataTable table = new DataTable();
-                table.Columns.Add("C-ASIN", typeof(string));
+                table.Columns.Add("CASIN", typeof(string));
                 table.Columns.Add("ItemStatus", typeof(int)); // Used for robust Enum formatting
                 table.Columns.Add("Requested Quantity", typeof(int));
                 //table.Columns.Add("WIP", typeof(int));
@@ -580,8 +540,12 @@ namespace WIPAT.DAL
             // 1. Retrieve the ForecastFile template configuration
             var templateRules = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.ForecastFile);
 
+            var excludedColumns = new[] { MasterColumnCatalogue.ProjectionMonth.Name, MasterColumnCatalogue.ProjectionYear.Name };
+
+            var allowedColumns = templateRules.Where(r => !excludedColumns.Contains(r.Definition.Name));
+
             // 2. Dynamically build columns based on the template
-            foreach (var rule in templateRules)
+            foreach (var rule in allowedColumns)
             {
                 table.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
             }

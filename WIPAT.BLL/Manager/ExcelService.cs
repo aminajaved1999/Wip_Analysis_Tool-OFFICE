@@ -217,7 +217,8 @@ namespace WIPAT.BLL.Services
 
                         if (missing.Any() || deactivated.Any())
                         {
-                            DataTable problemTable = CreateProblemItemsDataTable(missing, deactivated, filePath, requiredMonth, requiredYear);
+
+                            DataTable problemTable = new DataTableFactory().CreateProblemItemsDataTable(missing, deactivated, filePath, requiredMonth, requiredYear);
                             response.ProblemItemsTable = problemTable;
 
                             StringBuilder dialogText = new StringBuilder();
@@ -325,37 +326,6 @@ namespace WIPAT.BLL.Services
             }
 
             return response;
-        }
-
-        private DataTable CreateProblemItemsDataTable(List<string> missingItems, List<string> deactivatedItems, string filePath, string month, string year)
-        {
-            DataTable dt = new DataTable("ProblemItems");
-
-            dt.Columns.Add("Casin", typeof(string));
-            dt.Columns.Add("Month", typeof(string));
-            dt.Columns.Add("Year", typeof(string));
-            dt.Columns.Add("FileName", typeof(string));
-            dt.Columns.Add("Reason", typeof(string));
-
-            string fileName = Path.GetFileName(filePath);
-
-            if (deactivatedItems != null)
-            {
-                foreach (var casin in deactivatedItems)
-                {
-                    dt.Rows.Add(casin, month, year, fileName, "Deactivated/Invalid");
-                }
-            }
-
-            if (missingItems != null)
-            {
-                foreach (var casin in missingItems)
-                {
-                    dt.Rows.Add(casin, month, year, fileName, "Missing");
-                }
-            }
-
-            return dt;
         }
 
         public async Task<Response<string>> ValidateItemCatalogueExcelFile(string filePath)

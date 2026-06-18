@@ -22,6 +22,15 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         ExportWip
     }
 
+    /// <summary>
+    /// Dedicated enum for internal memory tables, system processing grids, or UI grids.
+    /// Separates internal processing schemas from physical file export schemas.
+    /// </summary>
+    public enum DataTableTemplateType
+    {
+        WorkingWipCalculationGrid
+    }
+
     public enum ExcelDataType
     {
         String,
@@ -51,7 +60,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
     }
 
     /// <summary>
-    /// Represents how a column behaves inside a specific Excel template.
+    /// Represents how a column behaves inside a specific Excel template or DataTable.
     /// </summary>
     public class ColumnRule
     {
@@ -76,7 +85,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
     /// </summary>
     public static class MasterColumnCatalogue
     {
-        // Standard / Shared
+        // --- Standard / Shared ---
         public static readonly ColumnDefinition Casin = new ColumnDefinition("CASIN", ExcelDataType.String);
         public static readonly ColumnDefinition Model = new ColumnDefinition("Model", ExcelDataType.String);
         public static readonly ColumnDefinition Description = new ColumnDefinition("Description", ExcelDataType.String);
@@ -88,19 +97,19 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         public static readonly ColumnDefinition Notes = new ColumnDefinition("Notes", ExcelDataType.String);
         public static readonly ColumnDefinition ItemStatus = new ColumnDefinition("ItemStatus", ExcelDataType.String);
 
-        // Forecast Specific
+        // --- Forecast Specific ---
         public static readonly ColumnDefinition RequestedQuantity = new ColumnDefinition("RequestedQuantity", ExcelDataType.Int);
         public static readonly ColumnDefinition CommitmentPeriod = new ColumnDefinition("CommitmentPeriod", ExcelDataType.Int);
         public static readonly ColumnDefinition PODate = new ColumnDefinition("PO Date", ExcelDataType.DateTime);
         public static readonly ColumnDefinition ProjectionMonth = new ColumnDefinition("ProjectionMonth", ExcelDataType.Int);
         public static readonly ColumnDefinition ProjectionYear = new ColumnDefinition("ProjectionYear", ExcelDataType.Int);
 
-        // Order Specific
+        // --- Order Specific ---
         public static readonly ColumnDefinition Quantity = new ColumnDefinition("Quantity", ExcelDataType.Int);
         public static readonly ColumnDefinition MonthInteger = new ColumnDefinition("Month", ExcelDataType.Int);
         public static readonly ColumnDefinition Year = new ColumnDefinition("Year", ExcelDataType.Int);
 
-        // Export Specific
+        // --- Export Specific ---
         public static readonly ColumnDefinition IsActive = new ColumnDefinition("IsActive", ExcelDataType.Boolean);
         public static readonly ColumnDefinition MonthString = new ColumnDefinition("Month", ExcelDataType.String);
         public static readonly ColumnDefinition WipQuantity = new ColumnDefinition("WIP Quantity", ExcelDataType.Int);
@@ -109,6 +118,30 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         public static readonly ColumnDefinition CasePack = new ColumnDefinition("CasePack", ExcelDataType.Int);
         public static readonly ColumnDefinition WipType = new ColumnDefinition("WIP Type", ExcelDataType.String);
         public static readonly ColumnDefinition CalculatedBy = new ColumnDefinition("Calculated By", ExcelDataType.String);
+
+        // --- Internal DataTables / Working WIP Grid Specific ---
+        // Core calculation columns
+        public static readonly ColumnDefinition ActualOrder = new ColumnDefinition("Actual_Order", ExcelDataType.Int);
+        public static readonly ColumnDefinition InitialStock = new ColumnDefinition("Initial_Stock", ExcelDataType.Int);
+        public static readonly ColumnDefinition Stock = new ColumnDefinition("Stock", ExcelDataType.Int);
+        public static readonly ColumnDefinition Arriving133Percent = new ColumnDefinition("Arriving_133%", ExcelDataType.Decimal);
+        public static readonly ColumnDefinition GrossRequirement = new ColumnDefinition("grossRequirement", ExcelDataType.Decimal);
+
+        // WIP Result columns
+        public static readonly ColumnDefinition ReviewWip = new ColumnDefinition("Review_Wip", ExcelDataType.Int);
+        public static readonly ColumnDefinition MoqWip = new ColumnDefinition("MOQ_Wip", ExcelDataType.Int);
+        public static readonly ColumnDefinition MOQ = new ColumnDefinition("MOQ", ExcelDataType.Int);
+        public static readonly ColumnDefinition CasePackWip = new ColumnDefinition("CasePack_Wip", ExcelDataType.Int);
+
+        // Layman specific columns
+        public static readonly ColumnDefinition Delta = new ColumnDefinition("Delta", ExcelDataType.Int);
+        public static readonly ColumnDefinition StockLayman = new ColumnDefinition("Stock_Layman", ExcelDataType.String);
+
+        // Base definitions for Dynamic Columns (Used as template identifiers, renamed at runtime)
+        public static readonly ColumnDefinition RequestedQuantityPrev = new ColumnDefinition("Requested_Quantity_Prev", ExcelDataType.Int);
+        public static readonly ColumnDefinition WipPrev = new ColumnDefinition("Wip_Prev", ExcelDataType.Int);
+        public static readonly ColumnDefinition RequestedQuantityCurr = new ColumnDefinition("Requested_Quantity_Curr", ExcelDataType.Int);
+        public static readonly ColumnDefinition CommitmentPeriodCurr = new ColumnDefinition("CommitmentPeriod_Curr", ExcelDataType.String);
     }
 
     #endregion
@@ -116,7 +149,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
     #region 4. TEMPLATE FACTORY
 
     /// <summary>
-    /// Defines WHICH columns belong to WHICH file, and how strict they are.
+    /// Defines WHICH columns belong to WHICH file or grid, and how strict they are.
     /// </summary>
     public static class FileTemplateFactory
     {
@@ -164,8 +197,8 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.ProjectionYear),
 
                         // Optional columns for downstream processing
-                        new ColumnRule(MasterColumnCatalogue.MonthString, false, false), // (extracted from PODate later)
-                        new ColumnRule(MasterColumnCatalogue.Year, false, false),//  (extracted from PODate later)
+                        new ColumnRule(MasterColumnCatalogue.MonthString, false, false),
+                        new ColumnRule(MasterColumnCatalogue.Year, false, false),
                         new ColumnRule(MasterColumnCatalogue.ItemStatus, false, false)
                     }.AsReadOnly();
 
@@ -174,7 +207,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                     {
                         new ColumnRule(MasterColumnCatalogue.Casin),
                         new ColumnRule(MasterColumnCatalogue.Quantity),
-                        new ColumnRule(MasterColumnCatalogue.MonthInteger), // Uses Int
+                        new ColumnRule(MasterColumnCatalogue.MonthInteger),
                         new ColumnRule(MasterColumnCatalogue.Year)
                     }.AsReadOnly();
 
@@ -187,7 +220,6 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         {
             switch (fileType)
             {
-                // Export Final Calculated Wip configuration
                 case ExportExcelFileType.ExportFinalCalculatedWip:
                     return new List<ColumnRule>
                     {
@@ -205,7 +237,6 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.CalculatedBy)
                     }.AsReadOnly();
 
-                // Export ItemsCatalogue configuration
                 case ExportExcelFileType.ExportItemsCatalogue:
                     return new List<ColumnRule>
                     {
@@ -221,7 +252,6 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.ItemStatus)
                     }.AsReadOnly();
 
-                // Export Wip configuration
                 case ExportExcelFileType.ExportWip:
                     return new List<ColumnRule>
                     {
@@ -232,6 +262,55 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
 
                 default:
                     throw new ArgumentException("No export template configured for: " + fileType);
+            }
+        }
+
+        /// <summary>
+        /// Retrieves column rules specifically for internal memory DataTables or UI Grids.
+        /// </summary>
+        public static IReadOnlyList<ColumnRule> GetDataTableTemplate(DataTableTemplateType gridType)
+        {
+            switch (gridType)
+            {
+                case DataTableTemplateType.WorkingWipCalculationGrid:
+                    return new List<ColumnRule>
+                    {
+                        // Standard Identity
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.ItemStatus),
+                        new ColumnRule(MasterColumnCatalogue.MonthString),
+                        new ColumnRule(MasterColumnCatalogue.Year),
+                        new ColumnRule(MasterColumnCatalogue.PODate),
+
+                        // Dynamic Previous/Current Month Data
+                        new ColumnRule(MasterColumnCatalogue.RequestedQuantityPrev),
+                        new ColumnRule(MasterColumnCatalogue.WipPrev),
+                        new ColumnRule(MasterColumnCatalogue.RequestedQuantityCurr),
+                        new ColumnRule(MasterColumnCatalogue.Arriving133Percent, false, false),
+                        new ColumnRule(MasterColumnCatalogue.CommitmentPeriodCurr),
+
+                        // Stock and Orders
+                        new ColumnRule(MasterColumnCatalogue.ActualOrder, false, false),
+                        new ColumnRule(MasterColumnCatalogue.InitialStock),
+                        new ColumnRule(MasterColumnCatalogue.Stock),
+
+                        // Conditional Layman Formula Columns
+                        new ColumnRule(MasterColumnCatalogue.Delta, false, false),
+                        new ColumnRule(MasterColumnCatalogue.StockLayman, false, false),
+                        
+                        // Calculated WIP and Requirements
+                        new ColumnRule(MasterColumnCatalogue.GrossRequirement, false, false),
+                        new ColumnRule(MasterColumnCatalogue.ReviewWip),
+
+                        // Conditional MOQ/CasePack Constraints
+                        new ColumnRule(MasterColumnCatalogue.MoqWip, false, false),
+                        new ColumnRule(MasterColumnCatalogue.MOQ, false, false),
+                        new ColumnRule(MasterColumnCatalogue.CasePackWip, false, false),
+                        new ColumnRule(MasterColumnCatalogue.CasePack, false, false)
+                    }.AsReadOnly();
+
+                default:
+                    throw new ArgumentException("No DataTable template configured for: " + gridType);
             }
         }
     }
@@ -249,7 +328,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
             {
                 case ExcelDataType.String: return typeof(string);
                 case ExcelDataType.Int: return typeof(int);
-                case ExcelDataType.Decimal: return typeof(decimal);
+                case ExcelDataType.Decimal: return typeof(double); 
                 case ExcelDataType.DateTime: return typeof(DateTime);
                 case ExcelDataType.Boolean: return typeof(bool);
                 default: return typeof(string);

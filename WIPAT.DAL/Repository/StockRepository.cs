@@ -276,7 +276,7 @@ namespace WIPAT.DAL
             string previousMonth = previousDate.ToString("MMMM");
 
             // Required columns
-            string casinCol = "C-ASIN";
+            string casinCol = "CASIN";
             string stockCol = "Initial_Stock";
             string orderCol = "Actual_Order";
             string productionCol = $"Wip ({previousMonth})";

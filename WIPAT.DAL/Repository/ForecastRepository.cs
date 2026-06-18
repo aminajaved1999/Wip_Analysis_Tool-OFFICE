@@ -401,77 +401,6 @@ namespace WIPAT.DAL
             }
         }
 
-        public Response<Tuple<DataTable, ForecastMaster>> _GetForecastDataFromDB(string month, string year)
-        {
-            try
-            {
-                var master = _context.ForecastMasters
-                            .AsNoTracking()
-                            .Include(m => m.Details.Select(d => d.ItemCatalogue))
-                            .FirstOrDefault(m => m.Month == month && m.Year == year);
-
-                if (master == null)
-                {
-                    return new Response<Tuple<DataTable, ForecastMaster>> { Success = false, Status = StatusType.Warning, Message = $"No forecast found for {month} {year}." };
-                }
-
-                var details = master.Details
-                        .Where(d => d.ItemCatalogue != null && (d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active || master.IsContinueWithInactiveItems))
-                        .OrderBy(d => d.CASIN)
-                        .ToList();
-
-                if (!details.Any())
-                {
-                    return new Response<Tuple<DataTable, ForecastMaster>> { Success = false, Status = StatusType.Warning, Message = $"No active items found for {month} {year}." };
-                }
-
-                DataTable table = new DataTable();
-                table.Columns.Add("CASIN", typeof(string));
-                table.Columns.Add("ItemStatus", typeof(int)); // Used for robust Enum formatting
-                table.Columns.Add("Requested Quantity", typeof(int));
-                //table.Columns.Add("WIP", typeof(int));
-                table.Columns.Add("Commitment period", typeof(int));
-                table.Columns.Add("PO Date", typeof(DateTime));
-                table.Columns.Add("Month", typeof(string));
-                table.Columns.Add("Year", typeof(string));
-
-
-                foreach (var d in details)
-                {
-                    bool isActive = d.ItemCatalogue != null ? d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active : true;
-                    int itemStatus = d.ItemCatalogue != null ? d.ItemCatalogue.ItemStatus : (int)CatalogueItemStatus.Invalid;
-
-                    table.Rows.Add(
-                        d.CASIN ?? (object)DBNull.Value,
-                        itemStatus,
-                        d.RequestedQuantity,
-                        //d.Wip ?? (object)DBNull.Value,
-                        d.CommitmentPeriod,
-                        d.PODate,
-                        d.Month ?? (object)DBNull.Value,
-                        d.Year ?? (object)DBNull.Value
-                    );
-                }
-
-                return new Response<Tuple<DataTable, ForecastMaster>>
-                {
-                    Success = true,
-                    Status = StatusType.Success,
-                    Data = new Tuple<DataTable, ForecastMaster>(table, master)
-                };
-            }
-            catch (Exception ex)
-            {
-                return new Response<Tuple<DataTable, ForecastMaster>>
-                {
-                    Success = false,
-                    Status = StatusType.Error,
-                    Message = $"An unexpected error occurred while retrieving forecast data from the database: {ex.Message}"
-                                + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                                + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
-                };
-            }
-        }
         public Response<Tuple<DataTable, ForecastMaster>> GetForecastDataFromDB(string month, string year)
         {
             try
@@ -508,7 +437,7 @@ namespace WIPAT.DAL
                     };
                 }
 
-                var table = BuildForecastDataTable(details);
+                var table = new DataTableFactory().BuildForecastDataTable(details);
 
                 return new Response<Tuple<DataTable, ForecastMaster>>
                 {
@@ -533,42 +462,9 @@ namespace WIPAT.DAL
                 };
             }
         }
-        private DataTable BuildForecastDataTable(IEnumerable<ForecastDetail> details)
-        {
-            DataTable table = new DataTable();
 
-            // 1. Retrieve the ForecastFile template configuration
-            var templateRules = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.ForecastFile);
-
-            var excludedColumns = new[] { MasterColumnCatalogue.ProjectionMonth.Name, MasterColumnCatalogue.ProjectionYear.Name };
-
-            var allowedColumns = templateRules.Where(r => !excludedColumns.Contains(r.Definition.Name));
-
-            // 2. Dynamically build columns based on the template
-            foreach (var rule in allowedColumns)
-            {
-                table.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
-            }
-
-            // 3. Populate Rows safely
-            foreach (var d in details)
-            {
-                DataRow row = table.NewRow();
-
-                // Map values utilizing the MasterColumnCatalogue
-                row[MasterColumnCatalogue.Casin.Name] = d.CASIN ?? (object)DBNull.Value;
-                row[MasterColumnCatalogue.RequestedQuantity.Name] = d.RequestedQuantity;
-                row[MasterColumnCatalogue.CommitmentPeriod.Name] = d.CommitmentPeriod;
-                row[MasterColumnCatalogue.PODate.Name] = d.PODate;
-                row[MasterColumnCatalogue.MonthString.Name] = d.Month;
-                row[MasterColumnCatalogue.Year.Name] = d.Year;
-                row[MasterColumnCatalogue.ItemStatus.Name] = ((CatalogueItemStatus)d.ItemStatus).ToString();
-
-                table.Rows.Add(row);
-            }
-
-            return table;
-        }
+        
+        
 
         public Response<bool> MarkForecastMasterAsWIPCalculated(string fileName)
         {

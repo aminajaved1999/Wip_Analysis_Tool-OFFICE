@@ -57,7 +57,7 @@ namespace WIPAT.BLL.Managers
                 if (!valRes.Success) return new Response<StockFileResponse> { Success = false, Message = valRes.Message };
 
                 // 3. Read Data
-                var readRes = _excelService.ReadExcelToDataTable(filePath, sheetName, requiredCols);
+                var readRes = new DataTableFactory().ReadExcelToDataTable(filePath, sheetName, requiredCols);
                 if (!readRes.Success) return new Response<StockFileResponse> { Success = false, Message = readRes.Message };
 
                 DataTable rawData = readRes.Data;

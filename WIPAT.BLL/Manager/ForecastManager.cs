@@ -251,7 +251,7 @@ namespace WIPAT.BLL.Managers
                 return response;
             }
 
-            var readRes = _excelService.ReadExcelToDataTable(filePath, sheetName, requiredColumns);
+            var readRes = new DataTableFactory().ReadExcelToDataTable(filePath, sheetName, requiredColumns);
             if (!readRes.Success)
             {
                 return new Response<ForecastFileData> { Success = false, Message = readRes.Message };
@@ -378,7 +378,7 @@ namespace WIPAT.BLL.Managers
                 return response;
             }
 
-            var readRes = _excelService.ReadExcelToDataTable(filePath, sheetName, requiredColumns);
+            var readRes = new DataTableFactory().ReadExcelToDataTable(filePath, sheetName, requiredColumns);
             if (!readRes.Success)
             {
                 return new Response<ForecastFileData> { Success = false, Message = readRes.Message };

@@ -23,7 +23,6 @@ namespace WIPAT.BLL.Interfaces
         #region Read Excel
         Response<(string Month, string Year)> PeekForecastProjectionDate(string filePath, string sheetName);
 
-        Response<DataTable> ReadExcelToDataTable(string filePath, string sheetName, List<string> columnsToRead = null);
         //Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath);
         Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath, bool isUpdate = false);
         Response<List<WipDetail>> ReadEditWipExcel(string filePath);

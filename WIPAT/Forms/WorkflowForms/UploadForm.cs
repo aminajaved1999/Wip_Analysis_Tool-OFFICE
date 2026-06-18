@@ -936,8 +936,8 @@ namespace WIPAT
             try
             {
                 int userId = _session.LoggedInUser.Id;
-                DataTable dtInvalidItems = CreateInvalidItemDataTable(selectedAsins, userId);
-                DataTable dtInitialStock = CreateInvalidStockDataTable(selectedAsins, userId);
+                DataTable dtInvalidItems = new DataTableFactory().CreateInvalidItemDataTable(selectedAsins, userId);
+                DataTable dtInitialStock = new DataTableFactory().CreateInvalidStockDataTable(selectedAsins, userId);
 
                 var response = _itemsRepository.BulkInsertInvalidCatalogueImport(dtInvalidItems, dtInitialStock);
 
@@ -966,69 +966,7 @@ namespace WIPAT
             }
         }
 
-        #region Helper Methods for Invalid Casins
-        private DataTable CreateInvalidItemDataTable(List<string> selectedAsins, int createdById)
-        {
-            DataTable dt = new DataTable();
-            dt.Columns.Add("Casin", typeof(string));
-            dt.Columns.Add("Model", typeof(string));
-            dt.Columns.Add("Description", typeof(string));
-            dt.Columns.Add("ColorName", typeof(string));
-            dt.Columns.Add("Size", typeof(string));
-            dt.Columns.Add("PCPK", typeof(string));
-            dt.Columns.Add("CasePackQty", typeof(int));
-            dt.Columns.Add("CreatedAt", typeof(DateTime));
-            dt.Columns.Add("CreatedById", typeof(int));
-            dt.Columns.Add("Notes", typeof(string));
-
-            dt.Columns.Add("ItemStatus", typeof(int));
-
-            foreach (var asin in selectedAsins)
-            {
-                var row = dt.NewRow();
-                row["Casin"] = asin;
-                row["Model"] = DBNull.Value;
-                row["Description"] = DBNull.Value;
-                row["ColorName"] = DBNull.Value;
-                row["Size"] = DBNull.Value;
-                row["PCPK"] = DBNull.Value;
-                row["CasePackQty"] = 0;
-                row["CreatedAt"] = DateTime.UtcNow;
-                row["CreatedById"] = createdById;
-                row["Notes"] = DBNull.Value;
-
-                // Set status to Invalid (2)
-                row["ItemStatus"] = 2;
-
-                dt.Rows.Add(row);
-            }
-            return dt;
-        }
-
-        private DataTable CreateInvalidStockDataTable(List<string> selectedAsins, int createdById)
-        {
-            DataTable dt = new DataTable();
-            dt.Columns.Add("Casin", typeof(string));
-            dt.Columns.Add("ItemCatalogueId", typeof(int));
-            dt.Columns.Add("OpeningStock", typeof(int));
-            dt.Columns.Add("CreatedAt", typeof(DateTime));
-            dt.Columns.Add("CreatedById", typeof(int));
-
-            foreach (var asin in selectedAsins)
-            {
-                var row = dt.NewRow();
-                row["Casin"] = asin;
-                row["ItemCatalogueId"] = DBNull.Value;
-                row["OpeningStock"] = 0;
-                row["CreatedAt"] = DateTime.UtcNow;
-                row["CreatedById"] = createdById;
-
-                dt.Rows.Add(row);
-            }
-            return dt;
-        }
-        #endregion
-
+       
         private void dgvForecastErrors_CellContentClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.ColumnIndex == dgvForecastErrors.Columns["chkSelect"].Index && e.RowIndex >= 0)

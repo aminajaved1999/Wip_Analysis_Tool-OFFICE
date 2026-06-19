@@ -22,15 +22,18 @@ namespace WIPAT.BLL.Managers
 
         // Optional: Cache the last successfully previewed file data to avoid re-reading/re-validating on final save
         private ForecastFileData _lastPreviewedData = null;
+        private readonly WipSession _session;
 
         public ForecastManager(
             IForecastRepository forecastRepository,
             IItemsRepository itemsRepository,
-            IExcelService excelService)
+            IExcelService excelService,
+            WipSession session)
         {
             _forecastRepository = forecastRepository ?? throw new ArgumentNullException(nameof(forecastRepository));
             _itemsRepository = itemsRepository ?? throw new ArgumentNullException(nameof(itemsRepository));
             _excelService = excelService ?? throw new ArgumentNullException(nameof(excelService));
+            _session = session ?? throw new ArgumentNullException(nameof(session));
         }
 
         #region Public Methods
@@ -85,9 +88,12 @@ namespace WIPAT.BLL.Managers
 
                 if (dbCheck.Success)
                 {
-                    var saveResponse = _forecastRepository.SaveForecastDataToDatabase(newForecastData, isFirstFile, isContinueWithInactive);
+                    var saveResponse = _forecastRepository.SaveForecastDataToDatabase(newForecastData, isFirstFile, isContinueWithInactive, _session.LoggedInUser.Id);
+
                     if (!saveResponse.Success)
+                    {
                         return new Response<List<ForecastFileData>> { Success = false, Message = saveResponse.Message };
+                    }
 
                     var refreshedData = _forecastRepository.GetForecastDataFromDB(newForecastData.ProjectionMonth, newForecastData.ProjectionYear);
                     if (refreshedData.Success)
@@ -215,134 +221,6 @@ namespace WIPAT.BLL.Managers
         #endregion
 
         #region Private Helper Methods (The Core Logic)
-
-        private async Task<Response<ForecastFileData>> _ProcessForecastFileInternal(string filePath, int commitmentPeriod, bool isFirstFile)
-        {
-            var response = new Response<ForecastFileData>();
-
-
-            // 1. Get the list of ColumnRule objects
-            var requiredExcelColumns = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.ForecastFile);
-
-            // Define the columns you want to ignore for validation
-            var excludedColumns = new[] { "Month", "Year", "ItemStatus" };
-
-            // Extract the Name, filter out the unwanted ones, and convert to a List<string>
-            List<string> requiredColumns = requiredExcelColumns
-                .Select(rule => rule.Definition.Name)
-                .Where(name => !excludedColumns.Contains(name))
-                .ToList();
-
-            //3. Determine worksheet name dynamically based on App.config keys
-            string sheetName = ConfigurationManager.AppSettings["ForecastWorksheetName"] ?? "Vendor Central Excel Output";
-
-            // 4. validate the excel file
-            var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Forecast.ToString(), sheetName, requiredColumns);
-            if (!valRes.Success)
-            {
-                response.Success = false;
-                response.Message = valRes.Message;
-                response.Data = new ForecastFileData
-                {
-                    DeactivatedItems = valRes.DeactivatedItems,
-                    MissingItems = valRes.MissingItems,
-                    ProblemItemsTable = valRes.ProblemItemsTable
-                };
-                return response;
-            }
-
-            var readRes = new DataTableFactory().ReadExcelToDataTable(filePath, sheetName, requiredColumns);
-            if (!readRes.Success)
-            {
-                return new Response<ForecastFileData> { Success = false, Message = readRes.Message };
-            }
-
-            DataTable rawTable = readRes.Data;
-
-            if (rawTable.Rows.Count == 0)
-            {
-                return new Response<ForecastFileData> { Success = false, Message = "File is empty." };
-            }
-
-            var processedTable = new DataTable();
-            foreach (var col in requiredColumns) processedTable.Columns.Add(col);
-            processedTable.Columns.Add("Month");
-            processedTable.Columns.Add("Year");
-            processedTable.Columns.Add("ItemStatus", typeof(int));
-
-            var asinRowIndex = new Dictionary<string, int>();
-
-            var allDbItemsRes = await _itemsRepository.GetActiveItemCatalogues(true);
-            var allDbItems = allDbItemsRes.Success && allDbItemsRes.Data != null
-                ? allDbItemsRes.Data.GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, ItemCatalogue>(StringComparer.OrdinalIgnoreCase);
-
-            string projMonthStr = rawTable.Rows[0][MasterColumnCatalogue.ProjectionMonth.Name]?.ToString();
-            string projYearStr = rawTable.Rows[0][MasterColumnCatalogue.ProjectionYear.Name]?.ToString();
-
-            if (!int.TryParse(projMonthStr, out int pMonth) || !int.TryParse(projYearStr, out int pYear))
-            {
-                return new Response<ForecastFileData> { Success = false, Message = "Invalid Projection Month/Year in file header." };
-            }
-
-            DateTime projectionDate = new DateTime(pYear, pMonth, 1);
-            string ProjectionMonth = projectionDate.ToString("MMMM");
-            string ProjectionYear = projectionDate.ToString("yyyy");
-            string forecastFor = projectionDate.AddMonths(commitmentPeriod + 1).ToString("MMMM yyyy");
-
-            foreach (DataRow row in rawTable.Rows)
-            {
-                string casin = row[MasterColumnCatalogue.Casin.Name].ToString().Trim();
-                if (string.IsNullOrEmpty(casin)) continue;
-
-                var newRow = processedTable.NewRow();
-
-                foreach (var col in requiredColumns) newRow[col] = row[col];
-
-                if (DateTime.TryParse(row[MasterColumnCatalogue.PODate.Name].ToString(), out DateTime poDate))
-                {
-                    newRow["Month"] = poDate.ToString("MMMM");
-                    newRow["Year"] = poDate.Year.ToString();
-                }
-                else
-                {
-                    newRow["Month"] = "Invalid Date";
-                    newRow["Year"] = "";
-                }
-
-                if (allDbItems.TryGetValue(casin, out var dbItem))
-                {
-                    newRow["ItemStatus"] = dbItem.ItemStatus;
-                }
-                else
-                {
-                    newRow["ItemStatus"] = (int)CatalogueItemStatus.Invalid;
-                }
-
-                if (!asinRowIndex.ContainsKey(casin)) asinRowIndex[casin] = 0;
-
-                processedTable.Rows.Add(newRow);
-                asinRowIndex[casin]++;
-            }
-
-            await GenerateMissingItemsAsync(processedTable, commitmentPeriod, isFirstFile, valRes.IsContinueWithInactiveItems);
-
-            response.Success = true;
-            response.Data = new ForecastFileData
-            {
-                FileName = Path.GetFileName(filePath),
-                FilePath = filePath,
-                FullTable = processedTable,
-                FilteredTable = processedTable.Copy(),
-                ProjectionMonth = ProjectionMonth,
-                ProjectionYear = ProjectionYear,
-                ForecastFor = forecastFor,
-                IsContinueWithInactiveItems = valRes.IsContinueWithInactiveItems,
-                ProblemItemsTable = valRes.ProblemItemsTable,
-            };
-
-            return response;
-        }
 
         private async Task<Response<ForecastFileData>> ProcessForecastFileInternal(string filePath, int commitmentPeriod, bool isFirstFile)
         {

@@ -46,7 +46,7 @@ namespace WIPAT
 
             // Initialize Business Logic (Managers/Services - Dependency Injection)
             var excelService = new ExcelService(session, itemsRepo);
-            var forecastManager = new ForecastManager(forecastRepo, itemsRepo, excelService);
+            var forecastManager = new ForecastManager(forecastRepo, itemsRepo, excelService, session);
             var stockManager = new StockManager(stockRepo, itemsRepo, excelService);
             var orderManager = new OrderManager(orderRepo, itemsRepo, excelService);
             var wipManager = new WipManager(wipRepo, forecastRepo, stockRepo, session);

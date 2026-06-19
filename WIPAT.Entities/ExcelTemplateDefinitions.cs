@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Configuration;
-using static System.Data.Entity.Infrastructure.Design.Executor;
 
 namespace WIPAT.Entities.ExcelTemplateDefinitions
 {
@@ -28,7 +26,13 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
     /// </summary>
     public enum DataTableTemplateType
     {
-        WorkingWipCalculationGrid
+        WorkingWipCalculationGrid,
+        ForecastBulkInsertTable,
+        ProblemItemsTable,
+        InvalidItemTable,
+        InvalidStockTable,
+        ValidStockTable,
+        ItemCatalogueDataTable // <-- Added
     }
 
     public enum ExcelDataType
@@ -120,28 +124,41 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         public static readonly ColumnDefinition CalculatedBy = new ColumnDefinition("Calculated By", ExcelDataType.String);
 
         // --- Internal DataTables / Working WIP Grid Specific ---
-        // Core calculation columns
         public static readonly ColumnDefinition ActualOrder = new ColumnDefinition("Actual_Order", ExcelDataType.Int);
         public static readonly ColumnDefinition InitialStock = new ColumnDefinition("Initial_Stock", ExcelDataType.Int);
         public static readonly ColumnDefinition Stock = new ColumnDefinition("Stock", ExcelDataType.Int);
         public static readonly ColumnDefinition Arriving133Percent = new ColumnDefinition("Arriving_133%", ExcelDataType.Decimal);
         public static readonly ColumnDefinition GrossRequirement = new ColumnDefinition("grossRequirement", ExcelDataType.Decimal);
 
-        // WIP Result columns
         public static readonly ColumnDefinition ReviewWip = new ColumnDefinition("Review_Wip", ExcelDataType.Int);
         public static readonly ColumnDefinition MoqWip = new ColumnDefinition("MOQ_Wip", ExcelDataType.Int);
         public static readonly ColumnDefinition MOQ = new ColumnDefinition("MOQ", ExcelDataType.Int);
         public static readonly ColumnDefinition CasePackWip = new ColumnDefinition("CasePack_Wip", ExcelDataType.Int);
 
-        // Layman specific columns
         public static readonly ColumnDefinition Delta = new ColumnDefinition("Delta", ExcelDataType.Int);
         public static readonly ColumnDefinition StockLayman = new ColumnDefinition("Stock_Layman", ExcelDataType.String);
 
-        // Base definitions for Dynamic Columns (Used as template identifiers, renamed at runtime)
         public static readonly ColumnDefinition RequestedQuantityPrev = new ColumnDefinition("Requested_Quantity_Prev", ExcelDataType.Int);
         public static readonly ColumnDefinition WipPrev = new ColumnDefinition("Wip_Prev", ExcelDataType.Int);
         public static readonly ColumnDefinition RequestedQuantityCurr = new ColumnDefinition("Requested_Quantity_Curr", ExcelDataType.Int);
         public static readonly ColumnDefinition CommitmentPeriodCurr = new ColumnDefinition("CommitmentPeriod_Curr", ExcelDataType.String);
+
+        // --- Database / Bulk Insert Specific ---
+        public static readonly ColumnDefinition ItemCatalogueId = new ColumnDefinition("ItemCatalogueId", ExcelDataType.Int);
+        public static readonly ColumnDefinition POForecastMasterId = new ColumnDefinition("POForecastMasterId", ExcelDataType.Int);
+
+        // Exact spelling/type mappings required by bulkTable in CreateForecastBulkInsertTable
+        public static readonly ColumnDefinition ItemStatusInt = new ColumnDefinition("ItemStatus", ExcelDataType.Int);
+
+        // --- Problem Items Specific ---
+        public static readonly ColumnDefinition FileName = new ColumnDefinition("FileName", ExcelDataType.String);
+        public static readonly ColumnDefinition Reason = new ColumnDefinition("Reason", ExcelDataType.String);
+
+        // --- Invalid / Valid DataTables Specific ---
+        public static readonly ColumnDefinition CreatedAt = new ColumnDefinition("CreatedAt", ExcelDataType.DateTime);
+        public static readonly ColumnDefinition CreatedById = new ColumnDefinition("CreatedById", ExcelDataType.Int);
+        public static readonly ColumnDefinition UpdatedAt = new ColumnDefinition("UpdatedAt", ExcelDataType.DateTime);
+        public static readonly ColumnDefinition UpdatedById = new ColumnDefinition("UpdatedById", ExcelDataType.Int);
     }
 
     #endregion
@@ -196,7 +213,6 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.ProjectionMonth),
                         new ColumnRule(MasterColumnCatalogue.ProjectionYear),
 
-                        // Optional columns for downstream processing
                         new ColumnRule(MasterColumnCatalogue.MonthString, false, false),
                         new ColumnRule(MasterColumnCatalogue.Year, false, false),
                         new ColumnRule(MasterColumnCatalogue.ItemStatus, false, false)
@@ -267,47 +283,130 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
 
         /// <summary>
         /// Retrieves column rules specifically for internal memory DataTables or UI Grids.
+        /// Added isUpdate parameter to dynamically generate schemas based on insert vs update operations.
         /// </summary>
-        public static IReadOnlyList<ColumnRule> GetDataTableTemplate(DataTableTemplateType gridType)
+        public static IReadOnlyList<ColumnRule> GetDataTableTemplate(DataTableTemplateType gridType, bool isUpdate = false)
         {
             switch (gridType)
             {
                 case DataTableTemplateType.WorkingWipCalculationGrid:
                     return new List<ColumnRule>
                     {
-                        // Standard Identity
                         new ColumnRule(MasterColumnCatalogue.Casin),
                         new ColumnRule(MasterColumnCatalogue.ItemStatus),
                         new ColumnRule(MasterColumnCatalogue.MonthString),
                         new ColumnRule(MasterColumnCatalogue.Year),
                         new ColumnRule(MasterColumnCatalogue.PODate),
-
-                        // Dynamic Previous/Current Month Data
                         new ColumnRule(MasterColumnCatalogue.RequestedQuantityPrev),
                         new ColumnRule(MasterColumnCatalogue.WipPrev),
                         new ColumnRule(MasterColumnCatalogue.RequestedQuantityCurr),
                         new ColumnRule(MasterColumnCatalogue.Arriving133Percent, false, false),
                         new ColumnRule(MasterColumnCatalogue.CommitmentPeriodCurr),
-
-                        // Stock and Orders
                         new ColumnRule(MasterColumnCatalogue.ActualOrder, false, false),
                         new ColumnRule(MasterColumnCatalogue.InitialStock),
                         new ColumnRule(MasterColumnCatalogue.Stock),
-
-                        // Conditional Layman Formula Columns
                         new ColumnRule(MasterColumnCatalogue.Delta, false, false),
                         new ColumnRule(MasterColumnCatalogue.StockLayman, false, false),
-                        
-                        // Calculated WIP and Requirements
                         new ColumnRule(MasterColumnCatalogue.GrossRequirement, false, false),
                         new ColumnRule(MasterColumnCatalogue.ReviewWip),
-
-                        // Conditional MOQ/CasePack Constraints
                         new ColumnRule(MasterColumnCatalogue.MoqWip, false, false),
                         new ColumnRule(MasterColumnCatalogue.MOQ, false, false),
                         new ColumnRule(MasterColumnCatalogue.CasePackWip, false, false),
                         new ColumnRule(MasterColumnCatalogue.CasePack, false, false)
                     }.AsReadOnly();
+
+                case DataTableTemplateType.ForecastBulkInsertTable:
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.ItemCatalogueId),
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.RequestedQuantity),
+                        new ColumnRule(MasterColumnCatalogue.CommitmentPeriod),
+                        new ColumnRule(MasterColumnCatalogue.PODate),
+                        new ColumnRule(MasterColumnCatalogue.MonthString),
+                        new ColumnRule(MasterColumnCatalogue.Year),
+                        new ColumnRule(MasterColumnCatalogue.POForecastMasterId),
+                        new ColumnRule(MasterColumnCatalogue.ItemStatusInt),
+                        new ColumnRule(MasterColumnCatalogue.Model,true, false),
+                        new ColumnRule(MasterColumnCatalogue.CreatedById,true, false),
+                        new ColumnRule(MasterColumnCatalogue.CreatedAt,true, false),
+                    }.AsReadOnly();
+
+                case DataTableTemplateType.ProblemItemsTable:
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.MonthString),
+                        new ColumnRule(MasterColumnCatalogue.Year),
+                        new ColumnRule(MasterColumnCatalogue.FileName),
+                        new ColumnRule(MasterColumnCatalogue.Reason)
+                    }.AsReadOnly();
+
+                case DataTableTemplateType.InvalidItemTable:
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.Model, true, false),
+                        new ColumnRule(MasterColumnCatalogue.Description, true, false),
+                        new ColumnRule(MasterColumnCatalogue.ColorName, true, false),
+                        new ColumnRule(MasterColumnCatalogue.Size, true, false),
+                        new ColumnRule(MasterColumnCatalogue.PCPK, true, false),
+                        new ColumnRule(MasterColumnCatalogue.CasePackQty),
+                        new ColumnRule(MasterColumnCatalogue.CreatedAt),
+                        new ColumnRule(MasterColumnCatalogue.CreatedById),
+                        new ColumnRule(MasterColumnCatalogue.Notes, true, false),
+                        new ColumnRule(MasterColumnCatalogue.ItemStatusInt)
+                    }.AsReadOnly();
+
+                case DataTableTemplateType.InvalidStockTable:
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.ItemCatalogueId, true, false),
+                        new ColumnRule(MasterColumnCatalogue.OpeningStock),
+                        new ColumnRule(MasterColumnCatalogue.CreatedAt),
+                        new ColumnRule(MasterColumnCatalogue.CreatedById)
+                    }.AsReadOnly();
+
+                case DataTableTemplateType.ValidStockTable:
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.OpeningStock),
+                        new ColumnRule(MasterColumnCatalogue.ItemCatalogueId, false, false),
+                        new ColumnRule(MasterColumnCatalogue.CreatedAt, false, false),
+                        new ColumnRule(MasterColumnCatalogue.CreatedById, false, false),
+                        new ColumnRule(MasterColumnCatalogue.UpdatedAt, false, false),
+                        new ColumnRule(MasterColumnCatalogue.UpdatedById, false, false)
+                    }.AsReadOnly();
+
+                // --- NEW: ItemCatalogueDataTable with dynamic rules based on Insert/Update ---
+                case DataTableTemplateType.ItemCatalogueDataTable:
+                    var catalogueColumns = new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.Model),
+                        new ColumnRule(MasterColumnCatalogue.Description),
+                        new ColumnRule(MasterColumnCatalogue.ColorName),
+                        new ColumnRule(MasterColumnCatalogue.Size),
+                        new ColumnRule(MasterColumnCatalogue.PCPK),
+                        new ColumnRule(MasterColumnCatalogue.CasePackQty),
+                        new ColumnRule(MasterColumnCatalogue.OpeningStock),
+                        new ColumnRule(MasterColumnCatalogue.Notes, true, false)
+                    };
+
+                    if (isUpdate)
+                    {
+                        catalogueColumns.Add(new ColumnRule(MasterColumnCatalogue.UpdatedAt));
+                        catalogueColumns.Add(new ColumnRule(MasterColumnCatalogue.UpdatedById));
+                    }
+                    else
+                    {
+                        catalogueColumns.Add(new ColumnRule(MasterColumnCatalogue.CreatedAt));
+                        catalogueColumns.Add(new ColumnRule(MasterColumnCatalogue.CreatedById));
+                    }
+
+                    return catalogueColumns.AsReadOnly();
 
                 default:
                     throw new ArgumentException("No DataTable template configured for: " + gridType);
@@ -316,6 +415,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
     }
 
     #endregion
+
 
     /// <summary>
     /// Extension methods for ExcelDataType to provide global mapping functions.
@@ -328,7 +428,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
             {
                 case ExcelDataType.String: return typeof(string);
                 case ExcelDataType.Int: return typeof(int);
-                case ExcelDataType.Decimal: return typeof(double); 
+                case ExcelDataType.Decimal: return typeof(double);
                 case ExcelDataType.DateTime: return typeof(DateTime);
                 case ExcelDataType.Boolean: return typeof(bool);
                 default: return typeof(string);

@@ -2,13 +2,14 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Entity;
+using System.Data.SqlClient;
 using System.Linq;
 using System.Threading.Tasks;
 using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Entities;
-using WIPAT.Entities.Enum;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 
 namespace WIPAT.DAL
 {
@@ -23,7 +24,7 @@ namespace WIPAT.DAL
             _session = session ?? throw new ArgumentNullException(nameof(session));
         }
 
-        #region Actual Order
+        #region Read Operations
 
         public Response<List<ActualOrder>> GetActualOrdersFromDatabase()
         {
@@ -67,35 +68,7 @@ namespace WIPAT.DAL
                     };
                 }
 
-                #region DataTable Construction
-                DataTable table = new DataTable();
-                table.Columns.Add("ItemCatalogueId", typeof(int));
-                table.Columns.Add("CASIN", typeof(string));
-                table.Columns.Add("Quantity", typeof(int));
-                table.Columns.Add("Month", typeof(string));
-                table.Columns.Add("Year", typeof(string));
-                table.Columns.Add("FileName", typeof(string));
-
-                table.Columns.Add("IsActive", typeof(bool)); // Maintained for backwards compatibility in UI
-                table.Columns.Add("ItemStatus", typeof(int)); // Updated to integer enum
-
-                foreach (var o in query)
-                {
-                    bool isActive = o.ItemCatalogue != null ? o.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active : false;
-                    int itemStatus = o.ItemCatalogue != null ? o.ItemCatalogue.ItemStatus : (int)CatalogueItemStatus.Invalid;
-
-                    table.Rows.Add(
-                        o.ItemCatalogueId,
-                        o.ItemCatalogue?.Casin,
-                        o.Quantity,
-                        o.Month,
-                        o.Year,
-                        o.FileName,
-                        isActive,
-                        itemStatus
-                    );
-                }
-                #endregion
+                DataTable table = new DataTableFactory().BuildOrderUIDataTable(query);
 
                 return new Response<DataTable>
                 {
@@ -114,82 +87,48 @@ namespace WIPAT.DAL
             }
         }
 
-        #endregion
-
-        public async Task<Response<bool>> SaveOrdersAndUpdateStock(List<ActualOrder> orders)
+        public Response<Tuple<DataTable, List<ActualOrder>>> GetExistingOrderData(string fileName, string month, string year)
         {
-            using (var transaction = _context.Database.BeginTransaction())
+            try
             {
-                try
+                var query = _context.ActualOrders
+                    .AsNoTracking()
+                    .Include(o => o.ItemCatalogue)
+                    .Where(o => o.Month == month && o.Year == year)
+                    .ToList();
+
+                if (!query.Any())
                 {
-                    #region Save Orders
-                    _context.ActualOrders.AddRange(orders);
-                    var isOrdersSaved = await _context.SaveChangesAsync();
-
-                    if (isOrdersSaved <= 0)
-                    {
-                        transaction.Rollback();
-                        return new Response<bool> { Success = false, Data = false, Message = "Failed to save actual orders." };
-                    }
-                    #endregion
-
-                    #region Update Stock Quantities
-
-                    //// 2. Update the stock quantities in InitialStocks table
-                    //foreach (var order in orders)
-                    //{
-                    //    var existingStock = await context.InitialStocks.FirstOrDefaultAsync(s => s.ItemCatalogueId == order.ItemCatalogueId);
-                    //    if (existingStock != null)
-                    //    {
-                    //        existingStock.OrderQty += order.Quantity;
-                    //        existingStock.OrderQtyUpdatedAt = DateTime.Now;
-                    //        existingStock.OrderQtyUpdatedBy = _session.LoggedInUser.Id;
-                    //    }
-                    //    else
-                    //    {
-                    //        // Rollback If stock record doesn't exist
-                    //        transaction.Rollback();
-                    //        response.Success = false;
-                    //        response.Data = false;
-                    //        response.Message = $"ItemCatalogueId {order.ItemCatalogueId} not found.";
-                    //        return response;
-                    //    }
-                    //}
-                    //var isStockUpdated = await context.SaveChangesAsync();
-
-                    //if (isStockUpdated <= 0)
-
-                    //{
-                    //    transaction.Rollback(); // Rollback if updating stock fails
-                    //    response.Success = false;
-                    //    response.Data = false;
-                    //    response.Message = "Failed to update stock quantities.";
-                    //    return response;
-                    //}
-
-                    #endregion
-
-                    transaction.Commit();
-
-                    return new Response<bool>
-                    {
-                        Success = true,
-                        Data = true,
-                        Message = "Orders saved successfully."
-                    };
-                }
-                catch (Exception ex)
-                {
-                    transaction.Rollback();
-                    return new Response<bool>
+                    return new Response<Tuple<DataTable, List<ActualOrder>>>
                     {
                         Success = false,
-                        Data = false,
-                        Message = $"An error occurred: {ex.Message}."
+                        Message = $"No data found for file '{fileName}', month '{month}', and year '{year}'."
                     };
                 }
+
+                // DataTable setup via factory
+                DataTable table = new DataTableFactory().BuildOrderUIDataTable(query);
+
+                return new Response<Tuple<DataTable, List<ActualOrder>>>()
+                {
+                    Success = true,
+                    Message = $"Order Data for '{month}-{year}' retrieved successfully.",
+                    Data = new Tuple<DataTable, List<ActualOrder>>(table, query)
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Response<Tuple<DataTable, List<ActualOrder>>>
+                {
+                    Success = false,
+                    Message = $"Error: {ex.Message}"
+                };
             }
         }
+
+        #endregion
+
+        #region Existence Checks
 
         public async Task<Response<ActualOrder>> OrderFileExists(string fileName, string requiredMonth, string requiredYear)
         {
@@ -226,128 +165,6 @@ namespace WIPAT.DAL
             }
         }
 
-        public Response<Tuple<DataTable, List<ActualOrder>>> GetExistingOrderData(string fileName, string month, string year)
-        {
-            try
-            {
-                var query = _context.ActualOrders
-                    .AsNoTracking()
-                    .Include(o => o.ItemCatalogue)
-                    .Where(o => o.Month == month && o.Year == year)
-                    .ToList();
-
-                if (!query.Any())
-                {
-                    return new Response<Tuple<DataTable, List<ActualOrder>>>
-                    {
-                        Success = false,
-                        Message = $"No data found for file '{fileName}', month '{month}', and year '{year}'."
-                    };
-                }
-
-                // DataTable setup
-                DataTable table = new DataTable();
-
-                table.Columns.Add("ItemCatalogueId", typeof(int));
-                table.Columns.Add("CASIN", typeof(string));
-                table.Columns.Add("Quantity", typeof(int));
-                table.Columns.Add("Month", typeof(string));
-                table.Columns.Add("Year", typeof(string));
-                table.Columns.Add("FileName", typeof(string));
-
-                table.Columns.Add("IsActive", typeof(bool));
-                table.Columns.Add("ItemStatus", typeof(int)); // Updated to enum integer
-
-                foreach (var o in query)
-                {
-                    var catalogue = o.ItemCatalogue;
-
-                    table.Rows.Add(
-                        o.ItemCatalogueId,
-                        catalogue?.Casin,
-                        o.Quantity,
-                        o.Month,
-                        o.Year,
-                        o.FileName,
-                        catalogue != null ? catalogue.ItemStatus == (int)CatalogueItemStatus.Active : false,
-                        catalogue != null ? catalogue.ItemStatus : (int)CatalogueItemStatus.Invalid
-                    );
-                }
-
-                return new Response<Tuple<DataTable, List<ActualOrder>>>()
-                {
-                    Success = true,
-                    Message = $"Order Data for '{month}-{year}' retrieved successfully.",
-                    Data = new Tuple<DataTable, List<ActualOrder>>(table, query)
-                };
-            }
-            catch (Exception ex)
-            {
-                return new Response<Tuple<DataTable, List<ActualOrder>>>
-                {
-                    Success = false,
-                    Message = $"Error: {ex.Message}"
-                };
-            }
-        }
-
-        public Response<Tuple<DataTable, List<ActualOrder>>> _GetExistingOrderData(string fileName, string month, string year)
-        {
-            try
-            {
-                // 1. Filter by Month/Year AND ensure the related ItemCatalogue is Active
-                var query = _context.ActualOrders
-                    .AsNoTracking()
-                    .Include(o => o.ItemCatalogue)
-                    .Where(o => o.Month == month
-                             && o.Year == year
-                             && o.ItemCatalogue != null        // Safety check
-                             && o.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active)  // Filter for active records only
-                    .ToList();
-
-
-                if (!query.Any())
-                {
-                    return new Response<Tuple<DataTable, List<ActualOrder>>>
-                    {
-                        Success = false,
-                        Message = $"No active data found for file '{fileName}', month '{month}', and year '{year}'."
-                    };
-                }
-
-                int count = query.Count;
-
-
-                DataTable table = new DataTable();
-                table.Columns.Add("ItemCatalogueId", typeof(int));
-                table.Columns.Add("Quantity", typeof(int));
-                table.Columns.Add("Month", typeof(string));
-                table.Columns.Add("Year", typeof(string));
-                table.Columns.Add("FileName", typeof(string));
-
-                foreach (var o in query)
-                {
-                    table.Rows.Add(o.ItemCatalogueId, o.Quantity, o.Month, o.Year, o.FileName);
-                }
-
-                return new Response<Tuple<DataTable, List<ActualOrder>>>
-                {
-                    Success = true,
-                    Message = $"Active Order Data for '{month}-{year}' retrieved successfully.",
-                    Data = new Tuple<DataTable, List<ActualOrder>>(table, query)
-                };
-            }
-            catch (Exception ex)
-            {
-                return new Response<Tuple<DataTable, List<ActualOrder>>>
-                {
-                    Success = false,
-                    Message = $"Error: {ex.Message}"
-                };
-            }
-        }
-
-        #region New Order Methods
         public Response<bool> IsDocNoExists(string docNo, string docType)
         {
             try
@@ -374,6 +191,127 @@ namespace WIPAT.DAL
             }
         }
 
+        #endregion
+
+        #region Write Operations 
+
+        public async Task<Response<bool>> SaveOrders(List<ActualOrder> orders)
+        {
+            using (var transaction = _context.Database.BeginTransaction())
+            {
+                try
+                {
+                    _context.ActualOrders.AddRange(orders);
+                    var isOrdersSaved = await _context.SaveChangesAsync();
+
+                    if (isOrdersSaved <= 0)
+                    {
+                        transaction.Rollback();
+                        return new Response<bool> { Success = false, Data = false, Message = "Failed to save actual orders." };
+                    }
+
+                    transaction.Commit();
+
+                    return new Response<bool>
+                    {
+                        Success = true,
+                        Data = true,
+                        Message = "Orders saved successfully."
+                    };
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    return new Response<bool>
+                    {
+                        Success = false,
+                        Data = false,
+                        Message = $"An error occurred: {ex.Message}."
+                    };
+                }
+            }
+        }
+        public async Task<Response<bool>> BulkInsertOrders(DataTable bulkTable)
+        {
+            #region Validation
+
+            if (bulkTable == null)
+            {
+                return new Response<bool> { Success = false, Data = false, Message = "Bulk insert failed: DataTable is null."};
+            }
+
+            if (bulkTable.Rows.Count == 0)
+            {
+                return new Response<bool> { Success = false, Data = false, Message = "Bulk insert failed: DataTable has no rows." };
+            }
+
+            #endregion
+
+            #region Database Connection
+
+            var dbConnection = _context.Database.Connection;
+
+            if (dbConnection.State != ConnectionState.Open)
+            {
+                dbConnection.Open();
+            }
+
+            #endregion
+
+            #region Transaction
+
+            using (var transaction = dbConnection.BeginTransaction())
+            {
+                try
+                {
+                    #region Bulk Copy Operation
+
+                    using (var sqlBulkCopy = new SqlBulkCopy((SqlConnection)dbConnection, SqlBulkCopyOptions.Default, (SqlTransaction)transaction))
+                    {
+                        sqlBulkCopy.DestinationTableName = "dbo.ActualOrders";
+
+                        sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.ItemCatalogueId.Name, "ItemCatalogueId");
+                        sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Quantity.Name, "Quantity");
+                        sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.MonthInteger.Name, "Month");
+                        sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Year.Name, "Year");
+                        sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.FileName.Name, "FileName");
+
+                        await sqlBulkCopy.WriteToServerAsync(bulkTable);
+                    }
+
+                    #endregion
+
+                    #region Commit Transaction
+
+                    transaction.Commit();
+
+                    return new Response<bool> { Success = true, Data = true, Message = "Bulk insert successful."};
+
+                    #endregion
+                }
+                catch (Exception ex)
+                {
+                    #region Rollback Transaction
+
+                    transaction.Rollback();
+
+                    return new Response<bool> { Success = false, Data = false, Message = $"Bulk insert failed: {ex.Message}" };
+
+                    #endregion
+                }
+                finally
+                {
+                    #region Cleanup Connection
+
+                    if (dbConnection.State == ConnectionState.Open)
+                        dbConnection.Close();
+
+                    #endregion
+                }
+            }
+
+            #endregion
+        }
         public async Task<Response<bool>> ExecuteOrderInsertion(OrderMaster master, List<OrderDetail> details)
         {
             using (var transaction = _context.Database.BeginTransaction())
@@ -404,9 +342,7 @@ namespace WIPAT.DAL
                 }
             }
         }
+
         #endregion
-
-
-
     }
 }

@@ -424,45 +424,6 @@ namespace WIPAT.BLL.Manager
 
         #region Helper Methods
 
-        private void _AddDataTableColumns(DataTable result, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, string wipType, bool checkBoxCasePack, int? MOQ)
-        {
-            result.Columns.Add("CASIN", typeof(string));
-            // Removed IsActive, using ItemStatus int
-            result.Columns.Add("ItemStatus", typeof(int));
-
-            result.Columns.Add("Month", typeof(string));
-            result.Columns.Add("Year", typeof(string));
-            result.Columns.Add("PO_Date", typeof(DateTime));
-            result.Columns.Add($"Requested_Quantity ({forecast_last_month.Month})", typeof(int));
-            result.Columns.Add($"Wip ({forecast_last_month.Month})", typeof(int));
-            result.Columns.Add($"Requested_Quantity ({forecast_current_month.Month})", typeof(int));
-            result.Columns.Add("Arriving_133%", typeof(double));
-
-            result.Columns.Add($"CommitmentPeriod ({forecast_current_month.Month})", typeof(string));
-            result.Columns.Add("Actual_Order", typeof(int));
-            result.Columns.Add("Initial_Stock", typeof(int));
-            result.Columns.Add("Stock", typeof(int));
-
-            if (wipType == WipType.LaymanFormula.ToString() || wipType == WipType.Layman.ToString())
-            {
-                result.Columns.Add("Delta", typeof(int));
-                result.Columns.Add("Stock_Layman", typeof(string));
-            }
-            result.Columns.Add("grossRequirement", typeof(double));
-
-            result.Columns.Add($"Review_Wip", typeof(int));
-
-            if (MOQ != null)
-            {
-                result.Columns.Add("MOQ_Wip", typeof(int));
-                result.Columns.Add("MOQ", typeof(int));
-            }
-            if (checkBoxCasePack)
-            {
-                result.Columns.Add("CasePack_Wip", typeof(int));
-                result.Columns.Add("CasePack", typeof(int));
-            }
-        }
         private void AddDataTableColumns(DataTable result, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, string wipType, bool checkBoxCasePack, int? MOQ)
         {
             // 1. Fetch the grid configuration from your new dedicated DataTable enum
@@ -519,55 +480,7 @@ namespace WIPAT.BLL.Manager
                 result.Columns.Add(columnName, columnType);
             }
         }
-        private void _AddRowToDataTable(
-       DataTable result, string asin, DateTime pODate, int qty1, object wipOfForecast_last_month,
-       int qty2, int commitmentPeriod, int? actualOrderVal, int currentStock, int remainingStock,
-       object remainingLaymanValue, object finalWip,
-       object moqWip, int? moq, object casePackWip, int? casePack,
-       string wipType, ForecastMaster forecast_last_month, ForecastMaster forecast_current_month, int? rawCalculatedWip
-            , double? grossRequirement
-            , double? arriving133percent
-            , int itemStatus
-            )
-        {
-            int delta = qty2 - qty1;
 
-            DataRow newRow = result.NewRow();
-            newRow["CASIN"] = asin;
-            newRow["ItemStatus"] = itemStatus;
-            newRow["Month"] = pODate.ToString("MMMM");
-            newRow["Year"] = pODate.ToString("yyyy");
-            newRow["PO_Date"] = pODate;
-            newRow[$"Requested_Quantity ({forecast_last_month.Month})"] = qty1;
-            newRow[$"Wip ({forecast_last_month.Month})"] = wipOfForecast_last_month ?? DBNull.Value;
-            newRow[$"Requested_Quantity ({forecast_current_month.Month})"] = qty2;
-            newRow["Arriving_133%"] = arriving133percent.HasValue ? (object)arriving133percent.Value : DBNull.Value;
-            newRow[$"CommitmentPeriod ({forecast_current_month.Month})"] = commitmentPeriod;
-            newRow["Actual_Order"] = actualOrderVal.HasValue ? (object)actualOrderVal.Value : DBNull.Value;
-            newRow["Initial_Stock"] = currentStock;
-            newRow["Stock"] = remainingStock;
-
-            if (wipType == WipType.LaymanFormula.ToString() || wipType == WipType.Layman.ToString())
-            {
-                newRow["Delta"] = delta;
-                newRow["Stock_Layman"] = remainingLaymanValue ?? DBNull.Value;
-            }
-            newRow["grossRequirement"] = grossRequirement.HasValue ? (object)Math.Round(grossRequirement.Value, 2) : DBNull.Value;
-            newRow[$"Review_Wip"] = rawCalculatedWip;
-
-            if (result.Columns.Contains("MOQ"))
-            {
-                newRow["MOQ_Wip"] = moqWip ?? DBNull.Value;
-                newRow["MOQ"] = moq.HasValue ? (object)moq.Value : DBNull.Value;
-            }
-            if (result.Columns.Contains("CasePack"))
-            {
-                newRow["CasePack_Wip"] = casePackWip ?? DBNull.Value;
-                newRow["CasePack"] = casePack.HasValue ? (object)casePack.Value : DBNull.Value;
-            }
-
-            result.Rows.Add(newRow);
-        }
         private void AddRowToDataTable(
     DataTable result, string asin, DateTime pODate, int qty1, object wipOfForecast_last_month,
     int qty2, int commitmentPeriod, int? actualOrderVal, int currentStock, int remainingStock,
@@ -628,28 +541,6 @@ namespace WIPAT.BLL.Manager
             result.Rows.Add(newRow);
         }
 
-        private List<SimulationInputData> _FetchProductionData(WIPATContext context, List<string> asinList, string currentMonth)
-        {
-            bool includeInactive = _session.IsContinueWithInactiveItems;
-
-            var itemCatalogueMap = context.ItemCatalogues
-                        .Where(i => (i.ItemStatus == (int)CatalogueItemStatus.Active || includeInactive) && asinList.Contains(i.Casin))
-                        .ToDictionary(i => i.Casin, i => i.Id);
-
-            var itemIds = itemCatalogueMap.Values.ToList();
-
-            var actualOrderMap = context.ActualOrders
-                .Where(a => itemIds.Contains(a.ItemCatalogueId) && a.Month == currentMonth)
-                .ToDictionary(a => a.ItemCatalogueId, a => (int?)a.Quantity ?? 0);
-
-            return itemCatalogueMap.Select(kv => new SimulationInputData
-            {
-                Asin = kv.Key,
-                ItemId = kv.Value,
-                ActualOrderQty = actualOrderMap.ContainsKey(kv.Value) ? actualOrderMap[kv.Value] : 0,
-                InitialStock = _stockRepository.GetInitialStockValue(kv.Value)
-            }).ToList();
-        }
         private List<SimulationInputData> FetchProductionData(WIPATContext context, List<ItemCatalogue> asinList, string currentMonth)
         {
             var itemIds = asinList.Select(c => c.Id).ToList();
@@ -1068,7 +959,9 @@ namespace WIPAT.BLL.Manager
                         MOQ_Wip = moqWip,
                         CasePack_Wip = cpWip,
                         CasePack = GetInt(row, "CasePack"),
-                        PODate = DateTime.Now
+                        PODate = DateTime.Now,
+                        CreatedAt = DateTime.Now,
+                        CreatedById = _session.LoggedInUser.Id
                     };
                     newDetails.Add(detail);
                 }
@@ -1163,6 +1056,8 @@ namespace WIPAT.BLL.Manager
                                 item.Id = existingId;
                                 context.WipDetails.Attach(item);
                                 context.Entry(item).State = EntityState.Modified;
+                                context.Entry(item).Property(x => x.CreatedAt).IsModified = false;
+                                context.Entry(item).Property(x => x.CreatedById).IsModified = false;
                             }
                             else
                             {

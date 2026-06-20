@@ -9,7 +9,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using WIPAT.Entities.BO;
 using WIPAT.Entities.Dto;
+using WIPAT.Entities.Entities;
 using WIPAT.Entities.Enum;
 using WIPAT.Entities.ExcelTemplateDefinitions;
 
@@ -17,133 +19,7 @@ namespace WIPAT.Entities
 {
     public class DataTableFactory
     {
-        #region Forecast related datatables
-
-        public DataTable CreateProblemItemsDataTable(List<string> missingItems, List<string> deactivatedItems, string filePath, string month, string year)
-        {
-            DataTable dt = new DataTable("ProblemItems");
-
-            // 1. Define Columns Dynamically using the Template Factory
-            var columnRules = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.ProblemItemsTable);
-            foreach (var rule in columnRules)
-            {
-                dt.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
-            }
-
-            string fileName = Path.GetFileName(filePath);
-
-            // 2. Insert rows sequentially (relies on the column order in GetDataTableTemplate matching these parameters)
-            if (deactivatedItems != null)
-            {
-                foreach (var casin in deactivatedItems)
-                {
-                    dt.Rows.Add(casin, month, year, fileName, "Deactivated/Invalid");
-                }
-            }
-
-            if (missingItems != null)
-            {
-                foreach (var casin in missingItems)
-                {
-                    dt.Rows.Add(casin, month, year, fileName, "Missing");
-                }
-            }
-
-            return dt;
-        }
-        
-        public (DataTable Table, string ErrorMessage) CreateForecastBulkInsertTable(DataTable rawData, int masterId, Dictionary<string, (int Id, int ItemStatus, string Model)> catalogueLookup, int loggedinUserId)
-        {
-            DataTable bulkTable = new DataTable();
-
-            // 1. Build schema dynamically from the template definitions
-            var template = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.ForecastBulkInsertTable);
-            foreach (var rule in template)
-            {
-                bulkTable.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
-            }
-
-            // 2. Populate Rows using Master Catalogue references
-            foreach (DataRow row in rawData.Rows)
-            {
-                var casinValue = row[MasterColumnCatalogue.Casin.Name]?.ToString();
-                var newRow = bulkTable.NewRow();
-
-                if (catalogueLookup.TryGetValue(casinValue, out var catInfo))
-                {
-                    newRow[MasterColumnCatalogue.ItemCatalogueId.Name] = catInfo.Id;
-                    newRow[MasterColumnCatalogue.ItemStatusInt.Name] = catInfo.ItemStatus;
-                    newRow[MasterColumnCatalogue.Model.Name] = catInfo.Model; // Assign the Model value here
-                }
-                else
-                {
-                    // Break out immediately if a CASIN is invalid
-                    return (null, $"Import failed: The CASIN '{casinValue}' does not exist in the Item Catalogue. Please register it before uploading.");
-                }
-
-                newRow[MasterColumnCatalogue.Casin.Name] = casinValue;
-                newRow[MasterColumnCatalogue.RequestedQuantity.Name] = int.TryParse(row[MasterColumnCatalogue.RequestedQuantity.Name]?.ToString(), out int qty) ? qty : 0;
-                newRow[MasterColumnCatalogue.CommitmentPeriod.Name] = int.TryParse(row[MasterColumnCatalogue.CommitmentPeriod.Name]?.ToString(), out int cp) ? cp : 0;
-                newRow[MasterColumnCatalogue.PODate.Name] = DateTime.TryParse(row[MasterColumnCatalogue.PODate.Name]?.ToString(), out DateTime poDate) ? poDate : DateTime.MinValue;
-                newRow[MasterColumnCatalogue.MonthString.Name] = row[MasterColumnCatalogue.MonthString.Name]?.ToString();
-                newRow[MasterColumnCatalogue.Year.Name] = int.TryParse(row[MasterColumnCatalogue.Year.Name]?.ToString(), out int yr) ? yr : 0;
-                newRow[MasterColumnCatalogue.POForecastMasterId.Name] = masterId;
-
-                bulkTable.Rows.Add(newRow);
-            }
-
-            return (bulkTable, null); // Return the fully populated table
-        }
-        
-        public DataTable CreateProcessedForecastTable(DataTable rawTable, List<string> requiredColumns, Dictionary<string, ItemCatalogue> allDbItems)
-        {
-            var processedTable = new DataTable();
-
-            // 1. Setup Columns
-            foreach (var col in requiredColumns) processedTable.Columns.Add(col);
-            processedTable.Columns.Add("Month");
-            processedTable.Columns.Add("Year");
-            processedTable.Columns.Add("ItemStatus", typeof(int));
-
-            // 2. Populate Rows
-            foreach (DataRow row in rawTable.Rows)
-            {
-                string casin = row[MasterColumnCatalogue.Casin.Name].ToString().Trim();
-                if (string.IsNullOrEmpty(casin)) continue;
-
-                var newRow = processedTable.NewRow();
-
-                // Copy required columns
-                foreach (var col in requiredColumns) newRow[col] = row[col];
-
-                // Handle Dates
-                if (DateTime.TryParse(row[MasterColumnCatalogue.PODate.Name].ToString(), out DateTime poDate))
-                {
-                    newRow["Month"] = poDate.ToString("MMMM");
-                    newRow["Year"] = poDate.Year.ToString();
-                }
-                else
-                {
-                    newRow["Month"] = "Invalid Date";
-                    newRow["Year"] = "";
-                }
-
-                // Handle Item Status
-                if (allDbItems.TryGetValue(casin, out var dbItem))
-                {
-                    newRow["ItemStatus"] = dbItem.ItemStatus;
-                }
-                else
-                {
-                    newRow["ItemStatus"] = (int)CatalogueItemStatus.Invalid;
-                }
-
-                processedTable.Rows.Add(newRow);
-            }
-
-            return processedTable;
-        }
-        
+        #region read excel to datatable
         public Response<DataTable> ReadExcelToDataTable(string filePath, string sheetName, List<string> columnsToRead = null)
         {
             var response = new Response<DataTable>();
@@ -219,44 +95,166 @@ namespace WIPAT.Entities
             }
         }
 
+        #endregion read excel to datatable
+
+        #region Forecast Related DataTables
+
+        // 1. Database Entity -> UI Table
         public DataTable BuildForecastDataTable(IEnumerable<ForecastDetail> details)
         {
-            DataTable table = new DataTable();
+            // Generate base table using standard Forecast template
+            DataTable table = GenerateEmptyTable(DataTableTemplateType.ForecastUIDataTable);
 
-            // 1. Retrieve the ForecastFile template configuration
-            var templateRules = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.ForecastFile);
-
-            var excludedColumns = new[] { MasterColumnCatalogue.ProjectionMonth.Name, MasterColumnCatalogue.ProjectionYear.Name };
-
-            var allowedColumns = templateRules.Where(r => !excludedColumns.Contains(r.Definition.Name));
-
-            // 2. Dynamically build columns based on the template
-            foreach (var rule in allowedColumns)
-            {
-                table.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
-            }
-
-            // 3. Populate Rows safely
-            foreach (var d in details)
+            foreach (var d in details)
             {
                 DataRow row = table.NewRow();
-
-                // Map values utilizing the MasterColumnCatalogue
-                row[MasterColumnCatalogue.Casin.Name] = d.CASIN ?? (object)DBNull.Value;
+                row[MasterColumnCatalogue.Casin.Name] = d.CASIN ?? (object)DBNull.Value;
                 row[MasterColumnCatalogue.RequestedQuantity.Name] = d.RequestedQuantity;
                 row[MasterColumnCatalogue.CommitmentPeriod.Name] = d.CommitmentPeriod;
                 row[MasterColumnCatalogue.PODate.Name] = d.PODate;
                 row[MasterColumnCatalogue.MonthString.Name] = d.Month;
                 row[MasterColumnCatalogue.Year.Name] = d.Year;
-                row[MasterColumnCatalogue.ItemStatus.Name] = ((CatalogueItemStatus)d.ItemStatus).ToString();
-
+                row[MasterColumnCatalogue.ItemStatus.Name] = (int)d.ItemStatus;
                 table.Rows.Add(row);
+            }
+            return table;
+        }
+
+        // 2. Raw Excel -> Processed UI Table
+        public DataTable CreateProcessedForecastTable(DataTable rawTable, List<string> requiredColumns, Dictionary<string, ItemCatalogue> allDbItems)
+        {
+            var processedTable = new DataTable();
+            foreach (var col in requiredColumns) processedTable.Columns.Add(col);
+            processedTable.Columns.Add("Month");
+            processedTable.Columns.Add("Year");
+            processedTable.Columns.Add("ItemStatus", typeof(int));
+
+            foreach (DataRow row in rawTable.Rows)
+            {
+                string casin = row[MasterColumnCatalogue.Casin.Name].ToString().Trim();
+                if (string.IsNullOrEmpty(casin)) continue;
+
+                var newRow = processedTable.NewRow();
+                foreach (var col in requiredColumns) newRow[col] = row[col];
+
+                if (DateTime.TryParse(row[MasterColumnCatalogue.PODate.Name].ToString(), out DateTime poDate))
+                {
+                    newRow["Month"] = poDate.ToString("MMMM");
+                    newRow["Year"] = poDate.Year.ToString();
+                }
+
+                newRow["ItemStatus"] = allDbItems.TryGetValue(casin, out var dbItem)
+                    ? dbItem.ItemStatus
+                    : (int)CatalogueItemStatus.Invalid;
+
+                processedTable.Rows.Add(newRow);
+            }
+            return processedTable;
+        }
+
+        // 3. UI Table -> DB Bulk Insert Table
+        public (DataTable Table, string ErrorMessage) CreateForecastBulkInsertTable(DataTable rawData, int masterId, Dictionary<string, (int Id, int ItemStatus, string Model)> catalogueLookup, int loggedinUserId)
+        {
+            DataTable bulkTable = GenerateEmptyTable(DataTableTemplateType.ForecastBulkInsertTable);
+            DateTime now = DateTime.Now;
+
+            foreach (DataRow row in rawData.Rows)
+            {
+                var casinValue = row[MasterColumnCatalogue.Casin.Name]?.ToString();
+
+                if (!catalogueLookup.TryGetValue(casinValue, out var catInfo))
+                {
+                    return (null, $"Import failed: The CASIN '{casinValue}' does not exist in the Item Catalogue. Please register it before uploading.");
+                }
+
+                var newRow = bulkTable.NewRow();
+                newRow[MasterColumnCatalogue.ItemCatalogueId.Name] = catInfo.Id;
+                newRow[MasterColumnCatalogue.ItemStatusInt.Name] = catInfo.ItemStatus;
+                newRow[MasterColumnCatalogue.Model.Name] = catInfo.Model;
+                newRow[MasterColumnCatalogue.Casin.Name] = casinValue;
+                newRow[MasterColumnCatalogue.RequestedQuantity.Name] = int.TryParse(row[MasterColumnCatalogue.RequestedQuantity.Name]?.ToString(), out int qty) ? qty : 0;
+                newRow[MasterColumnCatalogue.CommitmentPeriod.Name] = int.TryParse(row[MasterColumnCatalogue.CommitmentPeriod.Name]?.ToString(), out int cp) ? cp : 0;
+                newRow[MasterColumnCatalogue.PODate.Name] = DateTime.TryParse(row[MasterColumnCatalogue.PODate.Name]?.ToString(), out DateTime poDate) ? poDate : DateTime.MinValue;
+                newRow[MasterColumnCatalogue.MonthString.Name] = row[MasterColumnCatalogue.MonthString.Name]?.ToString();
+                newRow[MasterColumnCatalogue.Year.Name] = int.TryParse(row[MasterColumnCatalogue.Year.Name]?.ToString(), out int yr) ? yr : 0;
+                newRow[MasterColumnCatalogue.POForecastMasterId.Name] = masterId;
+                newRow[MasterColumnCatalogue.CreatedById.Name] = loggedinUserId;
+                newRow[MasterColumnCatalogue.CreatedAt.Name] = now;
+
+                bulkTable.Rows.Add(newRow);
+            }
+
+            return (bulkTable, null);
+        }
+        #endregion
+
+        #region Order Related DataTables
+
+        // 1. Database Entity -> UI Table
+        public DataTable BuildOrderUIDataTable(IEnumerable<ActualOrder> orders)
+        {
+            DataTable table = new DataTable();
+            var rules = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.OrderUIDataTable);
+
+            foreach (var rule in rules)
+            {
+                table.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
+            }
+
+            foreach (var o in orders)
+            {
+                var catalogue = o.ItemCatalogue;
+
+                DataRow uiRow = table.NewRow();
+                uiRow[MasterColumnCatalogue.ItemCatalogueId.Name] = o.ItemCatalogueId;
+                uiRow[MasterColumnCatalogue.Casin.Name] = catalogue?.Casin;
+                uiRow[MasterColumnCatalogue.Quantity.Name] = o.Quantity;
+                uiRow[MasterColumnCatalogue.MonthString.Name] = o.Month;
+                uiRow[MasterColumnCatalogue.Year.Name] = o.Year;
+                uiRow[MasterColumnCatalogue.ItemStatusInt.Name] = catalogue != null ? catalogue.ItemStatus : (int)CatalogueItemStatus.Invalid;
+
+                table.Rows.Add(uiRow);
             }
 
             return table;
         }
-        
-        #endregion Forecast related datatables
+
+        // 2.  Raw Excel -> Processed UI Table
+        public DataTable CreateProcessedOrderDataTable(DataTable rawData, Dictionary<string, ItemCatalogue> allDbItems)
+        {
+            var processedTable = GenerateEmptyTable(DataTableTemplateType.OrderUIDataTable);
+
+            foreach (DataRow row in rawData.Rows)
+            {
+                string casin = row[MasterColumnCatalogue.Casin.Name].ToString().Trim();
+
+                // Unified assignment approach: Using NewRow() and named keys
+                DataRow uiRow = processedTable.NewRow();
+
+                uiRow[MasterColumnCatalogue.Casin.Name] = casin;
+                uiRow[MasterColumnCatalogue.Quantity.Name] = row[MasterColumnCatalogue.Quantity.Name];
+                uiRow[MasterColumnCatalogue.MonthString.Name] = row[MasterColumnCatalogue.MonthInteger.Name];
+                uiRow[MasterColumnCatalogue.Year.Name] = row[MasterColumnCatalogue.Year.Name];
+
+                // Determine Item Status AND ItemCatalogueId 
+                if (allDbItems.TryGetValue(casin, out var dbItem))
+                {
+                    uiRow[MasterColumnCatalogue.ItemStatusInt.Name] = dbItem.ItemStatus;
+                    uiRow[MasterColumnCatalogue.ItemCatalogueId.Name] = dbItem.Id;
+                }
+                else
+                {
+                    // Optional fallback if the item isn't in the DB
+                    uiRow[MasterColumnCatalogue.ItemStatusInt.Name] = (int)CatalogueItemStatus.Invalid;
+                }
+
+                processedTable.Rows.Add(uiRow);
+            }
+
+            return processedTable;
+        }
+
+        #endregion
 
         #region stock related datatable
         public DataTable CreateInvalidStockDataTable(List<string> selectedAsins, int createdById)
@@ -460,7 +458,7 @@ namespace WIPAT.Entities
                 var templateRules = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.ItemCatalogueDataTable, isUpdate);
 
 
-               //Build Dynamic DataTable Schema
+                //Build Dynamic DataTable Schema
                 DataTable dt = new DataTable();
 
                 foreach (var rule in templateRules)
@@ -637,8 +635,44 @@ namespace WIPAT.Entities
         }
         #endregion itemcatalogue related datatable
 
+        #region error grid table
 
-        #region helpers 
+        public DataTable CreateProblemItemsDataTable(List<string> missingItems, List<string> deactivatedItems, string filePath)
+        {
+            DataTable dt = new DataTable("ProblemItems");
+
+            // 1. Define Columns Dynamically using the Template Factory
+            var columnRules = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.ProblemItemsTable);
+            foreach (var rule in columnRules)
+            {
+                dt.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
+            }
+
+            string fileName = Path.GetFileName(filePath);
+
+            // 2. Insert rows sequentially (relies on the column order in GetDataTableTemplate matching these parameters)
+            if (deactivatedItems != null)
+            {
+                foreach (var casin in deactivatedItems)
+                {
+                    dt.Rows.Add(casin, fileName, "Deactivated/Invalid");
+                }
+            }
+
+            if (missingItems != null)
+            {
+                foreach (var casin in missingItems)
+                {
+                    dt.Rows.Add(casin, fileName, "Missing");
+                }
+            }
+
+            return dt;
+        }
+
+        #endregion error grid table
+
+        #region helpers 
         private Response<DataRow> MapColumnValues(string column, string cellValue, DataRow dr, int row, int loggedInUserId)
         {
             var response = new Response<DataRow>();
@@ -737,7 +771,18 @@ namespace WIPAT.Entities
             }
         }
 
-        #endregion helpers   
+        private DataTable GenerateEmptyTable(DataTableTemplateType templateType, bool isUpdate = false)
+        {
+            var dt = new DataTable();
+            var rules = FileTemplateFactory.GetDataTableTemplate(templateType, isUpdate);
 
-    }
+            foreach (var rule in rules)
+            {
+                dt.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
+            }
+            return dt;
+        }
+
+        #endregion helpers   
+    }
 }

@@ -141,10 +141,22 @@ namespace WIPAT.BLL.Services
                                 casinList.Add(cellValue);
                             }
 
-                            if (colName == AllColumnNames.CasePackQty ||
-                                colName == StockOrderExcelColumns.Quantity.ToString() ||
-                                colName == StockOrderExcelColumns.Month.ToString() ||
-                                colName == StockOrderExcelColumns.Year.ToString())
+                            // STRICT VALIDATION FOR ORDER QUANTITY: No decimals, no negatives, no text.
+                            if (colName == StockOrderExcelColumns.Quantity.ToString())
+                            {
+                                if (IsEmpty(cellValue))
+                                {
+                                    return CreateErrorResponse($"Column '{colName}' at row {row} is required.");
+                                }
+                                if (!int.TryParse(cellValue, out int qty) || qty < 0)
+                                {
+                                    return CreateErrorResponse($"Validation Error: Column '{colName}' at row {row} must be a valid positive whole number. Decimals, text, and negative values are strictly prohibited. Found: '{cellValue}'.");
+                                }
+                            }
+                            // GENERAL NUMERIC VALIDATION FOR OTHERS
+                            else if (colName == AllColumnNames.CasePackQty ||
+                                     colName == StockOrderExcelColumns.Month.ToString() ||
+                                     colName == StockOrderExcelColumns.Year.ToString())
                             {
                                 if (!IsEmpty(cellValue) && !IsNumeric(cellValue))
                                 {
@@ -219,7 +231,7 @@ namespace WIPAT.BLL.Services
                         if (missing.Any() || deactivated.Any())
                         {
 
-                            DataTable problemTable = new DataTableFactory().CreateProblemItemsDataTable(missing, deactivated, filePath, requiredMonth, requiredYear);
+                            DataTable problemTable = new DataTableFactory().CreateProblemItemsDataTable(missing, deactivated, filePath);
                             response.ProblemItemsTable = problemTable;
 
                             StringBuilder dialogText = new StringBuilder();
@@ -580,6 +592,7 @@ namespace WIPAT.BLL.Services
 
             return response;
         }
+
         public async Task<Response<string>> ValidateItemCatalogueExcelFile(string filePath, bool isUpdate = false)
         {
             var response = new Response<string>();
@@ -775,6 +788,7 @@ namespace WIPAT.BLL.Services
 
             return response;
         }
+
         public Response<bool> ValidateColumns(string filePath, string sheetName, List<string> requiredColumns)
         {
             try
@@ -844,7 +858,6 @@ namespace WIPAT.BLL.Services
             }
         }
 
-
         public async Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath, bool isUpdate = false)
         {
             var response = new Response<List<DataTable>>();
@@ -860,7 +873,7 @@ namespace WIPAT.BLL.Services
                 }
 
                 string workSheetName = validationResponse.Data;
-                Response<DataTable> resItemCatalogues = await new DataTableFactory().GetItemCataloguesDataTableFromExcel(filePath, workSheetName, _session.LoggedInUser.Id,  isUpdate);
+                Response<DataTable> resItemCatalogues = await new DataTableFactory().GetItemCataloguesDataTableFromExcel(filePath, workSheetName, _session.LoggedInUser.Id, isUpdate);
                 if (resItemCatalogues.Success == false)
                 {
                     response.Success = false;
@@ -868,7 +881,7 @@ namespace WIPAT.BLL.Services
                     return response;
                 }
 
-                Response<DataTable> resInitialStock = await new DataTableFactory().GetStockDataTableFromExcel(filePath, workSheetName, _session.LoggedInUser.Id,  isUpdate);
+                Response<DataTable> resInitialStock = await new DataTableFactory().GetStockDataTableFromExcel(filePath, workSheetName, _session.LoggedInUser.Id, isUpdate);
                 if (resInitialStock.Success == false)
                 {
                     response.Success = false;
@@ -990,7 +1003,6 @@ namespace WIPAT.BLL.Services
 
         #endregion Read Excel
 
-       
         #region Export to excel
         public void ExportWipDataToExcel<T>(List<T> data, string fileName, string worksheetName)
         {

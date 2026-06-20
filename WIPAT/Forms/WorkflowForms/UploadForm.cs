@@ -200,7 +200,7 @@ namespace WIPAT
                 }
 
                 // Hide redundant IsActive column so UI looks clean
-                if (col.Name == "IsActive")
+                if (col.Name == MasterColumnCatalogue.IsActive.Name)
                 {
                     col.Visible = false;
                 }
@@ -646,7 +646,7 @@ namespace WIPAT
                 var f1 = _forecastFiles[0];
                 dgvForecast1.DataSource = f1.FullTable;
 
-                if (dgvForecast1.Columns.Contains("IsActive")) dgvForecast1.Columns["IsActive"].Visible = false;
+                if (dgvForecast1.Columns.Contains(MasterColumnCatalogue.IsActive.Name)) dgvForecast1.Columns[MasterColumnCatalogue.IsActive.Name].Visible = false;
 
                 lblForecast1.Text = $"{f1.ProjectionMonth} {f1.ProjectionYear} (Current)";
                 lblForecast1.ForeColor = UITheme.GridRowText;
@@ -654,7 +654,7 @@ namespace WIPAT
                 var stats1 = CalculateGridStats(f1.FullTable);
                 UpdateGridStats(1, stats1.Total, stats1.Active, stats1.Inactive, stats1.Invalid);
 
-                string colName1 = f1.FullTable.Columns.Contains("CASIN") ? "CASIN" : "CASIN";
+                string colName1 = f1.FullTable.Columns.Contains(MasterColumnCatalogue.Casin.Name) ? MasterColumnCatalogue.Casin.Name : MasterColumnCatalogue.Casin.Name;
                 ColorRowsByGroup(dgvForecast1, colName1);
 
                 if (pnlSearch1 != null) pnlSearch1.Visible = true;
@@ -672,12 +672,15 @@ namespace WIPAT
             dgvOrder.Visible = true;
 
             // Hide redundant IsActive column so UI looks clean
-            if (dgvOrder.Columns.Contains("IsActive")) dgvOrder.Columns["IsActive"].Visible = false;
+            if (dgvOrder.Columns.Contains(MasterColumnCatalogue.IsActive.Name)) dgvOrder.Columns[MasterColumnCatalogue.IsActive.Name].Visible = false;
 
             if (dt != null && dt.Rows.Count > 0)
             {
-                string month = dt.Columns.Contains("Month") ? dt.Rows[0]["Month"]?.ToString() : "";
-                string year = dt.Columns.Contains("Year") ? dt.Rows[0]["Year"]?.ToString() : "";
+                string monthName = MasterColumnCatalogue.MonthString.Name;
+                string yearName = MasterColumnCatalogue.Year.Name;
+
+                string month = dt.Columns.Contains(monthName) ? dt.Rows[0][monthName]?.ToString() : "";
+                string year = dt.Columns.Contains(yearName) ? dt.Rows[0][yearName]?.ToString() : "";
 
                 if (!string.IsNullOrEmpty(month) || !string.IsNullOrEmpty(year))
                 {
@@ -699,7 +702,8 @@ namespace WIPAT
             var stats = CalculateGridStats(dt);
             UpdateGridStats(3, stats.Total, stats.Active, stats.Inactive, stats.Invalid);
 
-            string targetColumn = dt != null && dt.Columns.Contains("CASIN") ? "CASIN" : (dt != null && dt.Columns.Contains("CASIN") ? "CASIN" : "");
+            string casinName = MasterColumnCatalogue.Casin.Name;
+            string targetColumn = dt != null && dt.Columns.Contains(casinName) ? casinName : (dt != null && dt.Columns.Contains(casinName) ? casinName : "");
             if (!string.IsNullOrEmpty(targetColumn))
             {
                 ColorRowsByGroup(dgvOrder, targetColumn);
@@ -712,7 +716,8 @@ namespace WIPAT
             {
                 try
                 {
-                    string targetColumn = dt.Columns.Contains("CASIN") ? "CASIN" : (dt.Columns.Contains("CASIN") ? "CASIN" : "");
+                    string casinName = MasterColumnCatalogue.Casin.Name;
+                    string targetColumn = dt.Columns.Contains(casinName) ? casinName : (dt.Columns.Contains(casinName) ? casinName : "");
                     if (string.IsNullOrEmpty(targetColumn)) return;
 
                     string filter = (string.IsNullOrWhiteSpace(searchText) || searchText.StartsWith("Search"))
@@ -789,12 +794,10 @@ namespace WIPAT
             if (prevDbResult.Success && prevDbResult.Data != null)
             {
                 _session.Prev = prevDbResult.Data.Forecast;
-                // Removed confusing UI status notification here
             }
             else
             {
                 _session.Prev = null;
-                // Removed confusing UI status notification here
             }
 
             // 3. Finalize Session Setup
@@ -811,7 +814,7 @@ namespace WIPAT
             _session.ForecastFiles = new List<ForecastFileData> { currentFile };
 
             _session.AsinList = currentFile.FullTable.AsEnumerable()
-                .Select(r => r["CASIN"]?.ToString())
+                .Select(r => r[MasterColumnCatalogue.Casin.Name]?.ToString())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct()
                 .ToList();
@@ -904,8 +907,9 @@ namespace WIPAT
 
         private void btnMarkInvalid_Click(object sender, EventArgs e)
         {
-            string asinColName = dgvForecastErrors.Columns.Contains("CASIN") ? "CASIN" :
-                               (dgvForecastErrors.Columns.Contains("CASIN") ? "CASIN" : null);
+            string casinName = MasterColumnCatalogue.Casin.Name;
+            string asinColName = dgvForecastErrors.Columns.Contains(casinName) ? casinName :
+                               (dgvForecastErrors.Columns.Contains(casinName) ? casinName : null);
 
             if (string.IsNullOrEmpty(asinColName))
             {
@@ -966,7 +970,7 @@ namespace WIPAT
             }
         }
 
-       
+
         private void dgvForecastErrors_CellContentClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.ColumnIndex == dgvForecastErrors.Columns["chkSelect"].Index && e.RowIndex >= 0)

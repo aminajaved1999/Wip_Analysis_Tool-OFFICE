@@ -32,7 +32,9 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         InvalidItemTable,
         InvalidStockTable,
         ValidStockTable,
-        ItemCatalogueDataTable // <-- Added
+        ItemCatalogueDataTable,
+        ForecastUIDataTable,
+        OrderUIDataTable // <-- Added for Order UI Grids
     }
 
     public enum ExcelDataType
@@ -336,8 +338,6 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                     return new List<ColumnRule>
                     {
                         new ColumnRule(MasterColumnCatalogue.Casin),
-                        new ColumnRule(MasterColumnCatalogue.MonthString),
-                        new ColumnRule(MasterColumnCatalogue.Year),
                         new ColumnRule(MasterColumnCatalogue.FileName),
                         new ColumnRule(MasterColumnCatalogue.Reason)
                     }.AsReadOnly();
@@ -380,7 +380,30 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.UpdatedById, false, false)
                     }.AsReadOnly();
 
-                // --- NEW: ItemCatalogueDataTable with dynamic rules based on Insert/Update ---
+                case DataTableTemplateType.ForecastUIDataTable:
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.RequestedQuantity),
+                        new ColumnRule(MasterColumnCatalogue.CommitmentPeriod),
+                        new ColumnRule(MasterColumnCatalogue.PODate),
+                        new ColumnRule(MasterColumnCatalogue.MonthString),
+                        new ColumnRule(MasterColumnCatalogue.Year),
+                        new ColumnRule(MasterColumnCatalogue.ItemStatus),
+                    }.AsReadOnly();
+
+                case DataTableTemplateType.OrderUIDataTable: // <-- NEW ORDER UI GRID DEFINITION
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.ItemCatalogueId),
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.Quantity),
+                        new ColumnRule(MasterColumnCatalogue.MonthString),
+                        new ColumnRule(MasterColumnCatalogue.Year),
+                        new ColumnRule(MasterColumnCatalogue.ItemStatusInt)
+                    }.AsReadOnly();
+
+                // --- ItemCatalogueDataTable with dynamic rules based on Insert/Update ---
                 case DataTableTemplateType.ItemCatalogueDataTable:
                     var catalogueColumns = new List<ColumnRule>
                     {

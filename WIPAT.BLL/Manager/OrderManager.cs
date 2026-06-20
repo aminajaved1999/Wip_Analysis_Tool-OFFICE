@@ -15,6 +15,7 @@ using WIPAT.Entities.BO;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Entities;
 using WIPAT.Entities.Enum;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 
 namespace WIPAT.BLL.Managers
 {
@@ -80,7 +81,9 @@ namespace WIPAT.BLL.Managers
                     return new Response<OrderFileResponse> { Success = false, Message = "The worksheet name configuration ('OrderWorksheetName') is missing or empty in the App.config file." };
                 }
 
-                var requiredCols = new List<string> { "CASIN", "Quantity", "Month", "Year" };
+                // FETCH REQUIRED EXCEL IMPORT COLUMNS DIRECTLY FROM DEFINITIONS
+                var importRules = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.OrderFile);
+                var requiredCols = importRules.Where(r => r.IsHeaderRequired).Select(r => r.Definition.Name).ToList();
 
                 var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Order.ToString(), sheetName, requiredCols, requiredMonth, requiredYear);
 
@@ -96,105 +99,96 @@ namespace WIPAT.BLL.Managers
                 }
 
                 var readRes = new DataTableFactory().ReadExcelToDataTable(filePath, sheetName, requiredCols);
-                if (!readRes.Success) return new Response<OrderFileResponse> { Success = false, Message = readRes.Message };
+                if (!readRes.Success)
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = readRes.Message };
+                }
 
                 DataTable rawData = readRes.Data;
-
-                foreach (var col in requiredCols) response.Data.DataTable.Columns.Add(col);
-
-                response.Data.DataTable.Columns.Add("IsActive", typeof(bool));
-                response.Data.DataTable.Columns.Add("ItemStatus", typeof(int)); // Updated to enum integer
-                response.Data.DataTable.Columns.Add("Status");
 
                 var allDbItemsRes = await _itemsRepository.GetActiveItemCatalogues(true);
                 var allDbItems = allDbItemsRes.Success && allDbItemsRes.Data != null
                     ? allDbItemsRes.Data.GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase)
                     : new Dictionary<string, ItemCatalogue>(StringComparer.OrdinalIgnoreCase);
 
+                #region Process Order Data
+
+                var validOrders = new List<ActualOrder>();
+                var missingCasins = new List<string>();
+                var deactivatedCasins = new List<string>();
+
+                // Assuming the session object contains a UserId property for the logged-in user
+                int loggedInUserId = session.LoggedInUser.Id;
+
+                // 1. Create and populate the ProcessedTable via the separate method
+                DataTable processedTable = new DataTableFactory().CreateProcessedOrderDataTable(rawData, allDbItems);
+
+                // 2. Process business logic for Valid Orders and Problem Items
                 foreach (DataRow row in rawData.Rows)
                 {
-                    string casin = row["CASIN"].ToString().Trim();
-                    string qtyStr = row["Quantity"].ToString();
-                    string monthStr = row["Month"].ToString();
-                    string yearStr = row["Year"].ToString();
-
-                    DataRow uiRow = response.Data.DataTable.NewRow();
-                    uiRow["CASIN"] = casin;
-                    uiRow["Quantity"] = qtyStr;
-                    uiRow["Month"] = monthStr;
-                    uiRow["Year"] = yearStr;
-
-                    int.TryParse(qtyStr, NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out int qty);
-                    int.TryParse(monthStr, out int monthNum);
-
-                    string monthName = monthNum >= 1 && monthNum <= 12
-                        ? CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(monthNum)
-                        : "Invalid";
+                    string casin = row[MasterColumnCatalogue.Casin.Name].ToString().Trim();
 
                     if (allDbItems.TryGetValue(casin, out var dbItem))
                     {
-                        uiRow["IsActive"] = dbItem.ItemStatus == (int)CatalogueItemStatus.Active;
-                        uiRow["ItemStatus"] = dbItem.ItemStatus;
-
                         if (dbItem.ItemStatus != (int)CatalogueItemStatus.Active && !valRes.IsContinueWithInactiveItems)
                         {
-                            // Item is deactivated, and user did NOT explicitly choose to ignore it
-                            uiRow["Status"] = "Deactivated ⚠️";
-                            response.Data.MissingOrders.Add(new InvalidOrder
-                            {
-                                Casin = casin,
-                                Quantity = qtyStr,
-                                Month = monthName,
-                                Year = yearStr,
-                                FileName = fileName,
-                                Reason = "Deactivated in Catalogue"
-                            });
+                            deactivatedCasins.Add(casin);
                         }
                         else
                         {
-                            // Valid Item (or Deactivated item that user opted to Continue/Ignore)
-                            uiRow["Status"] = "Valid ✔";
-                            response.Data.ValidOrders.Add(new ActualOrder
+                            // Only parse strings to integers when we actually need to create an order
+                            string qtyStr = row[MasterColumnCatalogue.Quantity.Name].ToString();
+                            string monthStr = row[MasterColumnCatalogue.MonthInteger.Name].ToString();
+                            string yearStr = row[MasterColumnCatalogue.Year.Name].ToString();
+
+                            int.TryParse(qtyStr, NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out int qty);
+                            int.TryParse(monthStr, out int monthNum);
+
+                            string monthName = monthNum >= 1 && monthNum <= 12
+                                ? CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(monthNum)
+                                : "Invalid";
+
+                            validOrders.Add(new ActualOrder
                             {
                                 ItemCatalogueId = dbItem.Id,
                                 Quantity = qty,
                                 Month = monthName,
                                 Year = yearStr,
                                 FileName = fileName,
-                                CreatedById = session.LoggedInUser.Id,
+                                CreatedById = loggedInUserId,
                                 CreatedAt = DateTime.Now
                             });
                         }
                     }
                     else
                     {
-                        // Item is totally missing from the DB
-                        uiRow["IsActive"] = false;
-                        uiRow["ItemStatus"] = (int)CatalogueItemStatus.Invalid;
-                        uiRow["Status"] = "Missing ❌";
-                        response.Data.MissingOrders.Add(new InvalidOrder
-                        {
-                            Casin = casin,
-                            Quantity = qtyStr,
-                            Month = monthName,
-                            Year = yearStr,
-                            FileName = fileName,
-                            Reason = "Missing in Catalogue"
-                        });
+                        missingCasins.Add(casin);
                     }
-
-                    response.Data.DataTable.Rows.Add(uiRow);
                 }
+
+                // 3. Generate the Problem Items DataTable
+                DataTable problemItemsTable = new DataTableFactory().CreateProblemItemsDataTable(missingCasins, deactivatedCasins, fileName);
+
+                #endregion Process Order Data
+
+                // Map local variables to the response object instead of the previous 'processingResult' tuple
+                response.Data.DataTable = processedTable;
+                response.Data.ValidOrders = validOrders;
+                //response.Data.MissingOrders = processingResult.MissingOrders;
+                // -----------------------------
 
                 if (response.Data.ValidOrders.Count == 0)
                 {
                     return new Response<OrderFileResponse> { Success = false, Message = "No valid orders found in file." };
                 }
 
-                var saveRes = await _orderRepository.SaveOrdersAndUpdateStock(response.Data.ValidOrders);
+                //var saveRes = await _orderRepository.SaveOrders(response.Data.ValidOrders);
+                var saveRes = await _orderRepository.BulkInsertOrders(processedTable);
 
                 if (!saveRes.Success)
+                {
                     return new Response<OrderFileResponse> { Success = false, Message = saveRes.Message };
+                }
 
                 response.Success = true;
                 string ignoreNote = valRes.IsContinueWithInactiveItems ? $" (Ignored {valRes.DeactivatedItems.Count} deactivated items)" : "";
@@ -239,13 +233,10 @@ namespace WIPAT.BLL.Managers
 
                 // 2. VALIDATE & READ EXCEL
                 string sheetName = ExcelSheetNames.Order.ToString();
-                var requiredCols = new List<string>
-                {
-                    StockOrderExcelColumns.CASIN.ToString(),
-                    StockOrderExcelColumns.Quantity.ToString(),
-                    StockOrderExcelColumns.Month.ToString(),
-                    StockOrderExcelColumns.Year.ToString()
-                };
+
+                // FETCH REQUIRED EXCEL IMPORT COLUMNS DIRECTLY FROM DEFINITIONS
+                var importRules = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.OrderFile);
+                var requiredCols = importRules.Where(r => r.IsHeaderRequired).Select(r => r.Definition.Name).ToList();
 
                 var valRes = await _excelService.ValidateExcelFile(filePath, FileType.Order.ToString(), sheetName, requiredCols);
                 if (!valRes.Success)
@@ -267,10 +258,10 @@ namespace WIPAT.BLL.Managers
                 // 4. VALIDATION LOOP
                 foreach (DataRow row in readRes.Data.Rows)
                 {
-                    string casin = row[StockOrderExcelColumns.CASIN.ToString()]?.ToString().Trim();
-                    string qtyStr = row[StockOrderExcelColumns.Quantity.ToString()]?.ToString().Trim();
-                    string monthStr = row[StockOrderExcelColumns.Month.ToString()]?.ToString().Trim();
-                    string yearStr = row[StockOrderExcelColumns.Year.ToString()]?.ToString().Trim();
+                    string casin = row[MasterColumnCatalogue.Casin.Name]?.ToString().Trim();
+                    string qtyStr = row[MasterColumnCatalogue.Quantity.Name]?.ToString().Trim();
+                    string monthStr = row[MasterColumnCatalogue.MonthInteger.Name]?.ToString().Trim();
+                    string yearStr = row[MasterColumnCatalogue.Year.Name]?.ToString().Trim();
 
                     if (string.IsNullOrWhiteSpace(casin))
                     {
@@ -409,7 +400,5 @@ namespace WIPAT.BLL.Managers
                 return new Response<bool> { Success = false, Message = $"Save Error: {ex.Message}" };
             }
         }
-
-
     }
 }

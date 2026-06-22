@@ -34,7 +34,8 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         ValidStockTable,
         ItemCatalogueDataTable,
         ForecastUIDataTable,
-        OrderUIDataTable // <-- Added for Order UI Grids
+        OrderUIDataTable,       // <-- Added for Order UI Grids
+        OrderBulkInsertTable    // <-- NEW: Added for Order Bulk Inserts
     }
 
     public enum ExcelDataType
@@ -148,6 +149,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         // --- Database / Bulk Insert Specific ---
         public static readonly ColumnDefinition ItemCatalogueId = new ColumnDefinition("ItemCatalogueId", ExcelDataType.Int);
         public static readonly ColumnDefinition POForecastMasterId = new ColumnDefinition("POForecastMasterId", ExcelDataType.Int);
+        public static readonly ColumnDefinition POOrderMasterId = new ColumnDefinition("POOrderMasterId", ExcelDataType.Int); // <-- NEW: Added for Order Bulk Insert
 
         // Exact spelling/type mappings required by bulkTable in CreateForecastBulkInsertTable
         public static readonly ColumnDefinition ItemStatusInt = new ColumnDefinition("ItemStatus", ExcelDataType.Int);
@@ -334,6 +336,21 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.CreatedAt,true, false),
                     }.AsReadOnly();
 
+                case DataTableTemplateType.OrderBulkInsertTable: // <-- NEW: ORDER BULK INSERT DEFINITION
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.ItemCatalogueId),
+                        new ColumnRule(MasterColumnCatalogue.POOrderMasterId),
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.Quantity),
+                        new ColumnRule(MasterColumnCatalogue.MonthString), 
+                        new ColumnRule(MasterColumnCatalogue.Year),
+                        new ColumnRule(MasterColumnCatalogue.ItemStatusInt),
+                        new ColumnRule(MasterColumnCatalogue.FileName),
+                        new ColumnRule(MasterColumnCatalogue.CreatedById, true, false),
+                        new ColumnRule(MasterColumnCatalogue.CreatedAt, true, false)
+                    }.AsReadOnly();
+
                 case DataTableTemplateType.ProblemItemsTable:
                     return new List<ColumnRule>
                     {
@@ -392,7 +409,7 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.ItemStatus),
                     }.AsReadOnly();
 
-                case DataTableTemplateType.OrderUIDataTable: // <-- NEW ORDER UI GRID DEFINITION
+                case DataTableTemplateType.OrderUIDataTable:
                     return new List<ColumnRule>
                     {
                         new ColumnRule(MasterColumnCatalogue.ItemCatalogueId),
@@ -438,7 +455,6 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
     }
 
     #endregion
-
 
     /// <summary>
     /// Extension methods for ExcelDataType to provide global mapping functions.

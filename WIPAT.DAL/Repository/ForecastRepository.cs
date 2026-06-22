@@ -25,7 +25,6 @@ namespace WIPAT.DAL
         #region Save Imported Files
         public Response<string> SaveForecastDataToDatabase(ForecastFileData forecastData, bool isFirstFile, bool IsContinueWithInactiveItems, int loggedInUserId)
         {
-
             using (var transaction = _context.Database.BeginTransaction())
             {
                 try
@@ -34,16 +33,19 @@ namespace WIPAT.DAL
                     var existingFileRes = IsFileAlreadyImported(forecastData.FileName);
                     if (existingFileRes.Success)
                     {
+                        transaction.Commit();
                         return new Response<string> { Success = false, Message = $"Data with filename '{forecastData.FileName}' already exists. Please use a different file." };
                     }
 
                     if (IsProjectionAlreadyExists(forecastData.ProjectionMonth, forecastData.ProjectionYear))
                     {
+                        transaction.Commit();
                         return new Response<string> { Success = false, Message = $"Forecast data for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear} already exists." };
                     }
 
                     if (IsWipAlreadyCalculated(forecastData.ProjectionMonth, forecastData.ProjectionYear))
                     {
+                        transaction.Commit();
                         return new Response<string> { Success = false, Message = $"WIP has already been calculated for {forecastData.ProjectionMonth}/{forecastData.ProjectionYear}. Duplicate calculation is not allowed." };
                     }
                     #endregion 1. Validation Checks
@@ -66,20 +68,21 @@ namespace WIPAT.DAL
                     #endregion 2. Save Master Record
 
                     #region 3. Build Lookup Data
-
                     var catalogueLookup = _context.ItemCatalogues
-                                    .Select(x => new { x.Id, x.Casin, x.ItemStatus, x.Model }) // Added x.Model
-                                    .ToDictionary(x => x.Casin, x => (x.Id, x.ItemStatus, x.Model)); // Added x.Model to tuple
+                                    .Select(x => new { x.Id, x.Casin, x.ItemStatus, x.Model })
+                                    .ToDictionary(x => x.Casin, x => (x.Id, x.ItemStatus, x.Model));
                     #endregion 3. Build Lookup Data
 
                     #region 4. Prepare Bulk Insert DataTable
+                    var bulkTableResponse = new DataTableFactory().CreateForecastBulkInsertTable(forecastData.FullTable, masterId, catalogueLookup, loggedInUserId);
 
-                    var (bulkTable, errorMessage) = new DataTableFactory().CreateForecastBulkInsertTable(forecastData.FullTable, masterId, catalogueLookup, loggedInUserId);
-                    if (errorMessage != null)
+                    if (!bulkTableResponse.Success)
                     {
-                        // If the factory hit a missing CASIN, rollback happens automatically as we exit
-                        return new Response<string> { Success = false, Message = errorMessage };
+                        transaction.Rollback();
+                        return new Response<string> { Success = false, Message = bulkTableResponse.Message };
                     }
+
+                    DataTable bulkTable = bulkTableResponse.Data;
                     #endregion 4. Prepare Bulk Insert DataTable
 
                     #region 5. set audit columns in Datatable
@@ -94,6 +97,7 @@ namespace WIPAT.DAL
 
                     var sqlConnection = (SqlConnection)_context.Database.Connection;
                     var sqlTransaction = (SqlTransaction)transaction.UnderlyingTransaction;
+
                     if (sqlConnection.State != ConnectionState.Open) sqlConnection.Open();
 
                     using (var sqlBulkCopy = new SqlBulkCopy(sqlConnection, SqlBulkCopyOptions.Default, sqlTransaction))
@@ -112,6 +116,7 @@ namespace WIPAT.DAL
                         sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.ItemStatus.Name, "ItemStatus");
                         sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.CreatedById.Name, "CreatedById");
                         sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.CreatedAt.Name, "CreatedAt");
+
                         sqlBulkCopy.WriteToServer(bulkTable);
                     }
                     #endregion 6. Bulk Insert Forecast Details
@@ -162,6 +167,7 @@ namespace WIPAT.DAL
                         ProjectionYear = forecastMaster.Year
                     };
                 }
+
                 return response;
             }
             catch (Exception ex)
@@ -170,20 +176,34 @@ namespace WIPAT.DAL
                 {
                     Success = false,
                     Message = $"An unexpected error occurred while checking if the file is already imported: {ex.Message}"
-                              + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                              + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
+                                + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
                 };
             }
         }
 
         public bool IsProjectionAlreadyExists(string month, string year)
         {
-            return _context.ForecastMasters.Any(fm => fm.Month == month && fm.Year == year);
+            try
+            {
+                return _context.ForecastMasters.Any(fm => fm.Month == month && fm.Year == year);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public bool IsWipAlreadyCalculated(string month, string year)
         {
-            return _context.ForecastMasters.Any(fm => fm.Month == month && fm.Year == year && fm.IsWipCalculated);
+            try
+            {
+                return _context.ForecastMasters.Any(fm => fm.Month == month && fm.Year == year && fm.IsWipCalculated);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public Response<ForecastCheckResult> PerformForecastChecks2(string fileName, string month, string year)
@@ -237,27 +257,29 @@ namespace WIPAT.DAL
                     {
                         result.Success = false;
                         result.Message = $"{msg}. Failed to load existing data: {existingForecast.Message}";
+
                         return result;
                     }
 
-                    // Indicates "Don't process new file, use DB"
                     result.Success = false;
                     result.Data.FileData.FullTable = existingForecast.Data.Item1;
                     result.Data.FileData.Forecast = existingForecast.Data.Item2;
                     result.Message = msg;
+
                     return result;
                 }
 
                 result.Success = true;
                 result.Message = "No existing forecast found. Ready to create new.";
+
                 return result;
             }
             catch (Exception ex)
             {
                 result.Success = false;
                 result.Message = $"An unexpected error occurred while performing forecast checks: {ex.Message}"
-                                 + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                                 + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+                                    + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                    + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
                 return result;
             }
         }
@@ -290,8 +312,8 @@ namespace WIPAT.DAL
                 {
                     Success = false,
                     Message = $"An unexpected error occurred while checking if WIP is calculated: {ex.Message}"
-                              + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                              + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
+                                + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
                 };
             }
         }
@@ -317,7 +339,7 @@ namespace WIPAT.DAL
 
                 var details = master.Details
                     .Where(d => d.ItemCatalogue != null &&
-                           (d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active
+                            (d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active
                             || master.IsContinueWithInactiveItems))
                     .OrderBy(d => d.CASIN)
                     .ToList();
@@ -332,13 +354,23 @@ namespace WIPAT.DAL
                     };
                 }
 
-                var table = new DataTableFactory().BuildForecastDataTable(details);
+                var tableResponse = new DataTableFactory().BuildForecastDataTable(details);
+
+                if (!tableResponse.Success)
+                {
+                    return new Response<Tuple<DataTable, ForecastMaster>>
+                    {
+                        Success = false,
+                        Status = StatusType.Error,
+                        Message = tableResponse.Message
+                    };
+                }
 
                 return new Response<Tuple<DataTable, ForecastMaster>>
                 {
                     Success = true,
                     Status = StatusType.Success,
-                    Data = new Tuple<DataTable, ForecastMaster>(table, master)
+                    Data = new Tuple<DataTable, ForecastMaster>(tableResponse.Data, master)
                 };
             }
             catch (Exception ex)
@@ -358,50 +390,63 @@ namespace WIPAT.DAL
             }
         }
 
-        
-        
-
         public Response<bool> MarkForecastMasterAsWIPCalculated(string fileName)
         {
-            try
+            using (var transaction = _context.Database.BeginTransaction())
             {
-                var forecastMaster = _context.ForecastMasters.FirstOrDefault(f => f.FileName == fileName);
-
-                if (forecastMaster == null)
+                try
                 {
-                    return new Response<bool> { Success = false, Message = $"Forecast master not found for: {fileName}" };
+                    var forecastMaster = _context.ForecastMasters.FirstOrDefault(f => f.FileName == fileName);
+
+                    if (forecastMaster == null)
+                    {
+                        transaction.Commit();
+                        return new Response<bool> { Success = false, Message = $"Forecast master not found for: {fileName}" };
+                    }
+
+                    forecastMaster.IsWipCalculated = true;
+                    _context.SaveChanges();
+
+                    transaction.Commit();
+                    return new Response<bool> { Success = true, Message = "Marked as WIP calculated.", Data = true };
                 }
-
-                forecastMaster.IsWipCalculated = true;
-                _context.SaveChanges();
-
-                return new Response<bool> { Success = true, Message = "Marked as WIP calculated.", Data = true };
-            }
-            catch (Exception ex)
-            {
-                return new Response<bool>
+                catch (Exception ex)
                 {
-                    Success = false,
-                    Message = $"An unexpected error occurred while marking the forecast master as WIP calculated: {ex.Message}"
-                              + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                              + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
-                };
+                    transaction.Rollback();
+                    return new Response<bool>
+                    {
+                        Success = false,
+                        Message = $"An unexpected error occurred while marking the forecast master as WIP calculated: {ex.Message}"
+                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
+                    };
+                }
             }
         }
 
         public ForecastMaster GetForecastMasterByFile(string fileName, string month, string year)
         {
-            return _context.ForecastMasters
-                .Include(m => m.Details)
-                .FirstOrDefault(m => m.FileName == fileName && m.Month == month && m.Year == year);
+            try
+            {
+                var master = _context.ForecastMasters
+                    .Include(m => m.Details)
+                    .FirstOrDefault(m => m.FileName == fileName && m.Month == month && m.Year == year);
+
+                return master;
+            }
+            catch
+            {
+                return null;
+            }
         }
+
         public Response<List<ForecastMaster>> GetAvailableForecastsFromDB()
         {
             try
             {
                 var projected = _context.ForecastMasters
                                         .AsNoTracking()
-                                        .Where(f => f.IsWipCalculated == false) // Filter applied here
+                                        .Where(f => f.IsWipCalculated == false)
                                         .Select(f => new { f.Month, f.Year })
                                         .Distinct()
                                         .ToList();
@@ -416,8 +461,8 @@ namespace WIPAT.DAL
                 {
                     Success = false,
                     Message = $"An unexpected error occurred while retrieving available forecasts from the database: {ex.Message}"
-                              + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                              + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
+                                + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
+                                + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "")
                 };
             }
         }

@@ -117,11 +117,16 @@ namespace WIPAT.BLL.Managers
                 var missingCasins = new List<string>();
                 var deactivatedCasins = new List<string>();
 
-                // Assuming the session object contains a UserId property for the logged-in user
                 int loggedInUserId = session.LoggedInUser.Id;
 
-                // 1. Create and populate the ProcessedTable via the separate method
-                DataTable processedTable = new DataTableFactory().CreateProcessedOrderDataTable(rawData, allDbItems);
+                // 1. Create and populate the ProcessedTable via the separate method (for Bulk Insert)
+                var processedTableResponse = new DataTableFactory().CreateProcessedOrderDataTable(rawData, allDbItems, loggedInUserId);
+                if (!processedTableResponse.Success)
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = processedTableResponse.Message };
+                }
+
+                DataTable processedTable = processedTableResponse.Data;
 
                 // 2. Process business logic for Valid Orders and Problem Items
                 foreach (DataRow row in rawData.Rows)
@@ -136,7 +141,6 @@ namespace WIPAT.BLL.Managers
                         }
                         else
                         {
-                            // Only parse strings to integers when we actually need to create an order
                             string qtyStr = row[MasterColumnCatalogue.Quantity.Name].ToString();
                             string monthStr = row[MasterColumnCatalogue.MonthInteger.Name].ToString();
                             string yearStr = row[MasterColumnCatalogue.Year.Name].ToString();
@@ -156,7 +160,8 @@ namespace WIPAT.BLL.Managers
                                 Year = yearStr,
                                 FileName = fileName,
                                 CreatedById = loggedInUserId,
-                                CreatedAt = DateTime.Now
+                                CreatedAt = DateTime.Now,
+                                ItemCatalogue = dbItem // Required to build the UI table
                             });
                         }
                     }
@@ -167,28 +172,38 @@ namespace WIPAT.BLL.Managers
                 }
 
                 // 3. Generate the Problem Items DataTable
-                DataTable problemItemsTable = new DataTableFactory().CreateProblemItemsDataTable(missingCasins, deactivatedCasins, fileName);
+                var problemItemsResponse = new DataTableFactory().CreateProblemItemsDataTable(missingCasins, deactivatedCasins, fileName);
 
+                if (!problemItemsResponse.Success)
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = problemItemsResponse.Message };
+                }
+
+                DataTable problemItemsTable = problemItemsResponse.Data;
                 #endregion Process Order Data
 
-                // Map local variables to the response object instead of the previous 'processingResult' tuple
-                response.Data.DataTable = processedTable;
-                response.Data.ValidOrders = validOrders;
-                //response.Data.MissingOrders = processingResult.MissingOrders;
-                // -----------------------------
-
-                if (response.Data.ValidOrders.Count == 0)
+                if (validOrders.Count == 0)
                 {
                     return new Response<OrderFileResponse> { Success = false, Message = "No valid orders found in file." };
                 }
 
-                //var saveRes = await _orderRepository.SaveOrders(response.Data.ValidOrders);
+                // Save to database using the bulk insert table
                 var saveRes = await _orderRepository.BulkInsertOrders(processedTable);
 
                 if (!saveRes.Success)
                 {
                     return new Response<OrderFileResponse> { Success = false, Message = saveRes.Message };
                 }
+
+                // Create the clean UI table specifically for the front end
+                var uiTableResponse = new DataTableFactory().BuildOrderUIDataTable(validOrders);
+                if (!uiTableResponse.Success)
+                {
+                    return new Response<OrderFileResponse> { Success = false, Message = uiTableResponse.Message };
+                }
+
+                response.Data.DataTable = uiTableResponse.Data;
+                response.Data.ValidOrders = validOrders;
 
                 response.Success = true;
                 string ignoreNote = valRes.IsContinueWithInactiveItems ? $" (Ignored {valRes.DeactivatedItems.Count} deactivated items)" : "";
@@ -200,7 +215,7 @@ namespace WIPAT.BLL.Managers
                 return new Response<OrderFileResponse> { Success = false, Message = $"Unexpected error: {ex.Message}" };
             }
         }
-     
+
         public async Task<Response<DataTable>> LoadExistingOrderAsync(string month, string year)
         {
             return await Task.Run(() => _orderRepository.GetOrderDataByMonthYear(month, year));

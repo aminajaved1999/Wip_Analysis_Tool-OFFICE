@@ -940,9 +940,27 @@ namespace WIPAT
             try
             {
                 int userId = _session.LoggedInUser.Id;
-                DataTable dtInvalidItems = new DataTableFactory().CreateInvalidItemDataTable(selectedAsins, userId);
-                DataTable dtInitialStock = new DataTableFactory().CreateInvalidStockDataTable(selectedAsins, userId);
+                //  Generate the Invalid Items DataTable
+                var invalidItemsResponse = new DataTableFactory().CreateInvalidItemDataTable(selectedAsins, userId);
+                if (!invalidItemsResponse.Success)
+                {
+                    MessageBox.Show($"Failed to generate invalid items data: {invalidItemsResponse.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
 
+                //  Generate the Initial Stock DataTable
+                var initialStockResponse = new DataTableFactory().CreateInvalidStockDataTable(selectedAsins, userId);
+                if (!initialStockResponse.Success)
+                {
+                    MessageBox.Show($"Failed to generate initial stock data: {initialStockResponse.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                // Extract the actual DataTables
+                DataTable dtInvalidItems = invalidItemsResponse.Data;
+                DataTable dtInitialStock = initialStockResponse.Data;
+
+                // Proceed with the bulk insert
                 var response = _itemsRepository.BulkInsertInvalidCatalogueImport(dtInvalidItems, dtInitialStock);
 
                 if (response.Success)
@@ -953,6 +971,7 @@ namespace WIPAT
                 {
                     MessageBox.Show($"Failed to mark items as invalid: {response.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
+
 
                 dgvForecastErrors.DataSource = null;
                 pnlForecastErrors.Visible = false;

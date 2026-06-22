@@ -93,18 +93,35 @@ namespace WIPAT.DAL
 
         public int GetItemIdByAsin(string asin)
         {
-            var item = _context.ItemCatalogues
-                               .AsNoTracking()
-                               .Where(i => i.ItemStatus == (int)CatalogueItemStatus.Active)
-                               .FirstOrDefault(i => i.Casin == asin);
-            return item?.Id ?? 0;
+            try
+            {
+                var item = _context.ItemCatalogues
+                                   .AsNoTracking()
+                                   .Where(i => i.ItemStatus == (int)CatalogueItemStatus.Active)
+                                   .FirstOrDefault(i => i.Casin == asin);
+
+                return item?.Id ?? 0;
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         public ItemCatalogue GetItemByCAsin(string casin)
         {
-            return _context.ItemCatalogues
-                           .AsNoTracking()
-                           .FirstOrDefault(item => item.Casin == casin && item.ItemStatus == (int)CatalogueItemStatus.Active);
+            try
+            {
+                var item = _context.ItemCatalogues
+                                   .AsNoTracking()
+                                   .FirstOrDefault(i => i.Casin == casin && i.ItemStatus == (int)CatalogueItemStatus.Active);
+
+                return item;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public async Task<Dictionary<string, int>> GetCatalogueIdsByCasinsAsync(List<string> casins)
@@ -141,46 +158,62 @@ namespace WIPAT.DAL
 
         public bool IsCAsinExistInCatalogue(string casin)
         {
-            return _context.ItemCatalogues.Any(item => item.Casin == casin && item.ItemStatus == (int)CatalogueItemStatus.Active);
+            try
+            {
+                return _context.ItemCatalogues.Any(item => item.Casin == casin && item.ItemStatus == (int)CatalogueItemStatus.Active);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public async Task<int?> CheckCAsinStatus(string casin)
         {
-            return await _context.ItemCatalogues
-                               .Where(item => item.Casin == casin)
-                               .Select(item => (int?)item.ItemStatus)
-                               .FirstOrDefaultAsync();
+            try
+            {
+                return await _context.ItemCatalogues
+                                           .Where(item => item.Casin == casin)
+                                           .Select(item => (int?)item.ItemStatus)
+                                           .FirstOrDefaultAsync();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public async Task<Dictionary<string, int>> GetCasinStatusesBatchAsync(IEnumerable<string> casins)
         {
             var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            // Convert to a List so Skip and Take operate efficiently
             var casinList = casins.ToList();
             int batchSize = 1000;
             int total = casinList.Count;
 
-            // Loop through the list in batches of 1000
-            for (int i = 0; i < total; i += batchSize)
+            try
             {
-                // Extract exactly 1000 items (or whatever is left) for this batch
-                var chunk = casinList.Skip(i).Take(batchSize).ToList();
-
-                // Send this batch to the database
-                var chunkResult = await _context.ItemCatalogues
-                    .Where(item => chunk.Contains(item.Casin))
-                    .Select(item => new { item.Casin, item.ItemStatus })
-                    .ToDictionaryAsync(x => x.Casin, x => (int)x.ItemStatus, StringComparer.OrdinalIgnoreCase);
-
-                // Merge the chunk results into our main dictionary
-                foreach (var kvp in chunkResult)
+                for (int i = 0; i < total; i += batchSize)
                 {
-                    result[kvp.Key] = kvp.Value;
-                }
-            }
+                    var chunk = casinList.Skip(i).Take(batchSize).ToList();
 
-            return result;
+                    var chunkResult = await _context.ItemCatalogues
+                        .Where(item => chunk.Contains(item.Casin))
+                        .Select(item => new { item.Casin, item.ItemStatus })
+                        .ToDictionaryAsync(x => x.Casin, x => (int)x.ItemStatus, StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var kvp in chunkResult)
+                    {
+                        result[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                return result;
+            }
+            catch
+            {
+                throw;
+            }
         }
 
         public async Task<Response<bool>> IsCasinExistInCatalogueAndInitialStock(string casin)
@@ -227,24 +260,36 @@ namespace WIPAT.DAL
 
         public bool AddItemToCatalogue(string casin, string itemName = null, string description = null)
         {
-            try
+            using (var transaction = _context.Database.BeginTransaction())
             {
-                if (_context.ItemCatalogues.Any(item => item.Casin == casin && item.ItemStatus == (int)CatalogueItemStatus.Active))
-                    return true;
-
-                var newItem = new ItemCatalogue
+                try
                 {
-                    Casin = casin,
-                    Description = description ?? string.Empty,
-                    ItemStatus = (int)CatalogueItemStatus.Active,
-                    CreatedAt = DateTime.Now,
-                };
+                    if (_context.ItemCatalogues.Any(item => item.Casin == casin && item.ItemStatus == (int)CatalogueItemStatus.Active))
+                    {
+                        transaction.Commit();
+                        return true;
+                    }
 
-                _context.ItemCatalogues.Add(newItem);
-                _context.SaveChanges();
-                return true;
+                    var newItem = new ItemCatalogue
+                    {
+                        Casin = casin,
+                        Description = description ?? string.Empty,
+                        ItemStatus = (int)CatalogueItemStatus.Active,
+                        CreatedAt = DateTime.Now,
+                    };
+
+                    _context.ItemCatalogues.Add(newItem);
+                    _context.SaveChanges();
+
+                    transaction.Commit();
+                    return true;
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    return false;
+                }
             }
-            catch { return false; }
         }
 
         public Response<bool> BulkUpdateCatalogueAndStatusImport(DataTable catalogueTable, DataTable stockTable)
@@ -257,20 +302,30 @@ namespace WIPAT.DAL
                 try
                 {
                     if (!catalogueTable.Columns.Contains("C-ASIN"))
+                    {
+                        transaction.Commit();
                         return new Response<bool> { Success = false, Message = "Missing C-ASIN column." };
+                    }
 
                     var incomingCasins = catalogueTable.AsEnumerable()
                         .Select(r => r["C-ASIN"]?.ToString()?.Trim())
                         .Where(c => !string.IsNullOrEmpty(c))
                         .Distinct().ToList();
 
-                    if (!incomingCasins.Any()) return new Response<bool> { Success = false, Message = "No valid CASINs." };
+                    if (!incomingCasins.Any())
+                    {
+                        transaction.Commit();
+                        return new Response<bool> { Success = false, Message = "No valid CASINs." };
+                    }
 
                     var existingItems = _context.ItemCatalogues.Where(i => incomingCasins.Contains(i.Casin)).ToDictionary(i => i.Casin, StringComparer.OrdinalIgnoreCase);
                     var missingCasins = incomingCasins.Where(c => !existingItems.ContainsKey(c)).ToList();
 
                     if (missingCasins.Any())
+                    {
+                        transaction.Commit();
                         return new Response<bool> { Success = false, Message = $"Not found in DB: {string.Join(", ", missingCasins)}" };
+                    }
 
                     var existingItemIds = existingItems.Values.Select(i => i.Id).ToList();
                     var existingStocks = _context.InitialStocks.Where(s => existingItemIds.Contains(s.ItemCatalogueId)).ToDictionary(s => s.ItemCatalogueId);
@@ -302,7 +357,6 @@ namespace WIPAT.DAL
                             item.CasePackQty = cpQty;
                         if (catalogueTable.Columns.Contains("Notes") && !row.IsNull("Notes")) item.Notes = row["Notes"].ToString();
 
-                        // Robustly parse ItemStatus (handles both "1" and "Active")
                         if (hasItemStatus && !row.IsNull("ItemStatus"))
                         {
                             string statusStr = row["ItemStatus"].ToString().Trim();
@@ -343,7 +397,6 @@ namespace WIPAT.DAL
 
         public Response<bool> BulkInsertInvalidCatalogueImport(DataTable dtInvalidItems, DataTable dtInitialStock)
         {
-            var response = new Response<bool>();
             string connectionString = ConfigurationManager.ConnectionStrings["dbContext"].ConnectionString;
 
             using (var conn = new SqlConnection(connectionString))
@@ -483,7 +536,7 @@ namespace WIPAT.DAL
 
         public Response<bool> BulkInsertInvalidInitialStock(DataTable dt, SqlConnection conn, SqlTransaction transaction)
         {
-            return BulkInsertInitialStock(dt, conn, transaction); // Reuse exact logic
+            return BulkInsertInitialStock(dt, conn, transaction);
         }
 
         public Response<DataTable> MapItemCatalogueIds(DataTable dtItemCatalogues, DataTable dtInitialStock, SqlConnection conn, SqlTransaction transaction)

@@ -68,13 +68,22 @@ namespace WIPAT.DAL
                     };
                 }
 
-                DataTable table = new DataTableFactory().BuildOrderUIDataTable(query);
+                var tableResponse = new DataTableFactory().BuildOrderUIDataTable(query);
+
+                if (!tableResponse.Success)
+                {
+                    return new Response<DataTable>
+                    {
+                        Success = false,
+                        Message = tableResponse.Message
+                    };
+                }
 
                 return new Response<DataTable>
                 {
                     Success = true,
                     Message = $"Order Data for '{month}-{year}' retrieved successfully.",
-                    Data = table
+                    Data = tableResponse.Data
                 };
             }
             catch (Exception ex)
@@ -106,14 +115,22 @@ namespace WIPAT.DAL
                     };
                 }
 
-                // DataTable setup via factory
-                DataTable table = new DataTableFactory().BuildOrderUIDataTable(query);
+                var tableResponse = new DataTableFactory().BuildOrderUIDataTable(query);
 
-                return new Response<Tuple<DataTable, List<ActualOrder>>>()
+                if (!tableResponse.Success)
+                {
+                    return new Response<Tuple<DataTable, List<ActualOrder>>>
+                    {
+                        Success = false,
+                        Message = tableResponse.Message
+                    };
+                }
+
+                return new Response<Tuple<DataTable, List<ActualOrder>>>
                 {
                     Success = true,
                     Message = $"Order Data for '{month}-{year}' retrieved successfully.",
-                    Data = new Tuple<DataTable, List<ActualOrder>>(table, query)
+                    Data = new Tuple<DataTable, List<ActualOrder>>(tableResponse.Data, query)
                 };
             }
             catch (Exception ex)
@@ -145,7 +162,6 @@ namespace WIPAT.DAL
             try
             {
                 var orderByFileName = await _context.ActualOrders.FirstOrDefaultAsync(f => f.FileName == fileName);
-
                 var orderByMonthYear = await _context.ActualOrders.FirstOrDefaultAsync(f => f.Month == requiredMonth && f.Year == requiredYear);
 
                 if (orderByFileName != null)
@@ -231,13 +247,14 @@ namespace WIPAT.DAL
                 }
             }
         }
+
         public async Task<Response<bool>> BulkInsertOrders(DataTable bulkTable)
         {
             #region Validation
 
             if (bulkTable == null)
             {
-                return new Response<bool> { Success = false, Data = false, Message = "Bulk insert failed: DataTable is null."};
+                return new Response<bool> { Success = false, Data = false, Message = "Bulk insert failed: DataTable is null." };
             }
 
             if (bulkTable.Rows.Count == 0)
@@ -275,29 +292,23 @@ namespace WIPAT.DAL
                         sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.MonthInteger.Name, "Month");
                         sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Year.Name, "Year");
                         sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.FileName.Name, "FileName");
+                        sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.CreatedById.Name, "CreatedById");
+                        sqlBulkCopy.ColumnMappings.Add(MasterColumnCatalogue.CreatedAt.Name, "CreatedAt");
 
                         await sqlBulkCopy.WriteToServerAsync(bulkTable);
                     }
 
                     #endregion
 
-                    #region Commit Transaction
-
                     transaction.Commit();
 
-                    return new Response<bool> { Success = true, Data = true, Message = "Bulk insert successful."};
-
-                    #endregion
+                    return new Response<bool> { Success = true, Data = true, Message = "Bulk insert successful." };
                 }
                 catch (Exception ex)
                 {
-                    #region Rollback Transaction
-
                     transaction.Rollback();
 
                     return new Response<bool> { Success = false, Data = false, Message = $"Bulk insert failed: {ex.Message}" };
-
-                    #endregion
                 }
                 finally
                 {
@@ -312,6 +323,7 @@ namespace WIPAT.DAL
 
             #endregion
         }
+
         public async Task<Response<bool>> ExecuteOrderInsertion(OrderMaster master, List<OrderDetail> details)
         {
             using (var transaction = _context.Database.BeginTransaction())

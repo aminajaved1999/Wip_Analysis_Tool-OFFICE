@@ -288,9 +288,17 @@ namespace WIPAT.BLL.Managers
             string ProjectionMonth = projectionDate.ToString("MMMM");
             string ProjectionYear = projectionDate.ToString("yyyy");
             string forecastFor = projectionDate.AddMonths(commitmentPeriod + 1).ToString("MMMM yyyy");
-
+            
             // 7. Get Processed DataTable via Factory
-            var processedTable = new DataTableFactory().CreateProcessedForecastTable(rawTable, requiredColumns, allDbItems);
+            var processedTableResponse = new DataTableFactory().CreateProcessedForecastTable(rawTable, requiredColumns, allDbItems);
+
+            if (!processedTableResponse.Success)
+            {
+                return new Response<ForecastFileData> { Success = false, Message = processedTableResponse.Message };
+            }
+
+            // Extract the actual DataTable to proceed with your logic
+            var processedTable = processedTableResponse.Data;
 
             // 8. Generate Missing Items
             await GenerateMissingItemsAsync(processedTable, commitmentPeriod, isFirstFile, valRes.IsContinueWithInactiveItems);

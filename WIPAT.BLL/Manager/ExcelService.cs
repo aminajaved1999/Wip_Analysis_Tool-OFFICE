@@ -231,7 +231,14 @@ namespace WIPAT.BLL.Services
                         if (missing.Any() || deactivated.Any())
                         {
 
-                            DataTable problemTable = new DataTableFactory().CreateProblemItemsDataTable(missing, deactivated, filePath);
+                            var problemTableResponse = new DataTableFactory().CreateProblemItemsDataTable(missing, deactivated, filePath);
+                            if (!problemTableResponse.Success)
+                            {
+                                response.Success = false;
+                                response.Message = problemTableResponse.Message;
+                                return response;
+                            }
+                            var problemTable = problemTableResponse.Data;
                             response.ProblemItemsTable = problemTable;
 
                             StringBuilder dialogText = new StringBuilder();

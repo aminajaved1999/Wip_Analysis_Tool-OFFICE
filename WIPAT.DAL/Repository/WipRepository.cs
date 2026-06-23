@@ -7,18 +7,22 @@ using System.Threading.Tasks;
 using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
+using WIPAT.Entities.Enum;
 
 namespace WIPAT.DAL
 {
     public class WipRepository : IWipRepository
     {
         private readonly WIPATContext _context;
+        private readonly IStockRepository _stockRepository;
+
 
         #region Constructor
 
-        public WipRepository(WIPATContext context)
+        public WipRepository(WIPATContext context, IStockRepository stockRepository)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
+            _stockRepository = stockRepository;
         }
 
         #endregion
@@ -63,37 +67,36 @@ namespace WIPAT.DAL
             }
         }
 
-        public Response<List<ForecastMaster>> GetForecastsWithCalculatedWip()
+        public Response<List<WipMaster>> GetAvailableWipPeriods()
         {
             try
             {
-                var forecasts = _context.ForecastMasters
-                    .AsNoTracking()
-                    .Where(fm => fm.IsWipCalculated)
-                    .OrderByDescending(fm => fm.Year)
-                    .ThenByDescending(fm => fm.Month)
-                    .ToList();
+                var wips = _context.WipMasters
+                .AsNoTracking()
+                .OrderByDescending(fm => fm.IssuedYear)
+                .ThenByDescending(fm => fm.IssuedMonth)
+                .ToList();
 
-                if (forecasts.Any())
+                if (wips.Any())
                 {
-                    return new Response<List<ForecastMaster>>
+                    return new Response<List<WipMaster>>
                     {
                         Success = true,
-                        Message = "Successfully retrieved calculated WIPs.",
-                        Data = forecasts
+                        Message = "WIP periods retrieved successfully.",
+                        Data = wips
                     };
                 }
 
-                return new Response<List<ForecastMaster>>
+                return new Response<List<WipMaster>>
                 {
                     Success = true,
-                    Message = "No calculated WIPs found.",
-                    Data = new List<ForecastMaster>()
+                    Message = "No WIP periods available.",
                 };
+
             }
             catch (Exception ex)
             {
-                return new Response<List<ForecastMaster>>
+                return new Response<List<WipMaster>>
                 {
                     Success = false,
                     Message = $"An unexpected error occurred while retrieving calculated WIPs: {ex.Message}"
@@ -125,15 +128,15 @@ namespace WIPAT.DAL
                     return new Response<List<WipDetail>>
                     {
                         Success = true,
-                        Message = $"Retrieved {details.Count} WIP records.",
+                        Message = $"WIP details for {month} {year} loaded successfully. Total records: {details.Count}.",
                         Data = details
                     };
                 }
 
                 return new Response<List<WipDetail>>
                 {
-                    Success = true,
-                    Message = $"No WIP records found for {month} {year}.",
+                    Success = false,
+                    Message = $"No WIP details were found for {month} {year}.",
                     Data = new List<WipDetail>()
                 };
             }
@@ -338,5 +341,152 @@ namespace WIPAT.DAL
         }
 
         #endregion
+
+        #region Write Operations
+        public async Task<Response<bool>> SaveWipRecordsTransactionAsync(
+            string fileName, string issuedMonthName, int issuedYear, string targetMonthName, int targetYear,
+            string wipType, string capacity, int? globalMoq, bool globalIsCasePack, int loggedInUserId,
+            List<WipDetail> dedupedDetails, DataTable stockDataTable, string wipColName, string sessionMonth, string sessionYear)
+        {
+            using (var tx = _context.Database.BeginTransaction())
+            {
+                _context.Configuration.AutoDetectChangesEnabled = false;
+                _context.Configuration.ValidateOnSaveEnabled = false;
+                _context.Database.CommandTimeout = 300;
+
+                try
+                {
+                    var distinctCasins = dedupedDetails.Select(d => d.CASIN).Distinct().ToList();
+
+                    var itemCatalogueMap = await _context.ItemCatalogues
+                        .Where(ic => distinctCasins.Contains(ic.Casin))
+                        .Select(ic => new { ic.Casin, ic.Id })
+                        .AsNoTracking()
+                        .ToDictionaryAsync(k => k.Casin, v => v.Id);
+
+                    var missingCasins = new List<string>();
+                    foreach (var detail in dedupedDetails)
+                    {
+                        if (itemCatalogueMap.TryGetValue(detail.CASIN, out int catalogueId))
+                            detail.ItemCatalogueId = catalogueId;
+                        else
+                            missingCasins.Add(detail.CASIN);
+                    }
+
+                    if (missingCasins.Any())
+                        throw new Exception($"Failed to map ItemCatalogueId for Casins: {string.Join(", ", missingCasins.Distinct())}");
+
+                    var forecastMaster = await _context.ForecastMasters.AsNoTracking().FirstOrDefaultAsync(fm => fm.FileName == fileName);
+                    if (forecastMaster == null) throw new Exception($"POForecastMaster not found for file '{fileName}'");
+
+                    var wipMaster = await _context.WipMasters
+                        .FirstOrDefaultAsync(wm => wm.FileName == fileName && wm.TargetMonth == targetMonthName);
+
+                    if (wipMaster == null)
+                    {
+                        wipMaster = new WipMaster
+                        {
+                            FileName = fileName,
+                            IssuedMonth = issuedMonthName,
+                            IssuedYear = issuedYear.ToString(),
+                            TargetMonth = targetMonthName,
+                            TargetYear = targetYear,
+                            Type = wipType,
+                            WipProcessingType = capacity,
+                            MOQ = globalMoq,
+                            IsCasePackChecked = globalIsCasePack,
+                            CreatedAt = DateTime.Now,
+                            CreatedById = loggedInUserId
+                        };
+                        _context.WipMasters.Add(wipMaster);
+                        await _context.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        wipMaster.UpdatedAt = DateTime.Now;
+                        wipMaster.UpdatedById = loggedInUserId;
+                        wipMaster.IsCasePackChecked = globalIsCasePack;
+                        wipMaster.WipProcessingType = capacity;
+                        wipMaster.MOQ = globalMoq;
+                    }
+
+                    var existingWipDetails = await _context.WipDetails
+                        .Where(d => d.WipMaster_Id == wipMaster.Id)
+                        .Select(d => new { d.Id, Key = d.CASIN + "|" + d.CommitmentPeriod })
+                        .AsNoTracking()
+                        .ToDictionaryAsync(k => k.Key, v => v.Id);
+
+                    var detailsToInsert = new List<WipDetail>();
+                    int iterationCount = 0;
+
+                    foreach (var item in dedupedDetails)
+                    {
+                        string key = item.CASIN + "|" + item.CommitmentPeriod;
+                        item.WipMaster_Id = wipMaster.Id;
+
+                        if (existingWipDetails.TryGetValue(key, out int existingId))
+                        {
+                            item.Id = existingId;
+                            _context.WipDetails.Attach(item);
+                            _context.Entry(item).State = EntityState.Modified;
+                            _context.Entry(item).Property(x => x.CreatedAt).IsModified = false;
+                            _context.Entry(item).Property(x => x.CreatedById).IsModified = false;
+                        }
+                        else
+                        {
+                            detailsToInsert.Add(item);
+                        }
+
+                        iterationCount++;
+                        if (iterationCount % 1000 == 0)
+                        {
+                            if (detailsToInsert.Any())
+                            {
+                                _context.WipDetails.AddRange(detailsToInsert);
+                                detailsToInsert.Clear();
+                            }
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+
+                    if (detailsToInsert.Any())
+                    {
+                        _context.WipDetails.AddRange(detailsToInsert);
+                    }
+
+                    var masterStub = new ForecastMaster { Id = forecastMaster.Id, IsWipCalculated = true };
+                    _context.ForecastMasters.Attach(masterStub);
+                    _context.Entry(masterStub).Property(x => x.IsWipCalculated).IsModified = true;
+
+                    // Note: Ensure _stockRepository is injected in WipRepository or its logic is handled here
+                    var stockResult = await _stockRepository.UpdateStockQtyInStockTable(stockDataTable, wipColName, sessionMonth, sessionYear);
+                    if (!stockResult.Success) throw new Exception(stockResult.Message);
+
+                    await _context.SaveChangesAsync();
+                    tx.Commit();
+
+                    return new Response<bool> { Success = true, Data = true, Status = StatusType.Success, Message = "WIP saved successfully." };
+                }
+                catch (Exception ex)
+                {
+                    tx.Rollback();
+
+                    // Capture the exception and return it via the Response object instead of throwing
+                    return new Response<bool>
+                    {
+                        Success = false,
+                        Data = false,
+                        Status = StatusType.Error,
+                        Message = $"Transaction failed: {ex.Message}" + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}" : "")
+                    };
+                }
+                finally
+                {
+                    _context.Configuration.AutoDetectChangesEnabled = true;
+                    _context.Configuration.ValidateOnSaveEnabled = true;
+                }
+            }
+        }
+        #endregion Write Operations
     }
 }

@@ -10,6 +10,7 @@ using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
+using WIPAT.Entities.ExcelTemplateDefinitions;
 
 namespace WIPAT.DAL
 {
@@ -301,14 +302,14 @@ namespace WIPAT.DAL
             {
                 try
                 {
-                    if (!catalogueTable.Columns.Contains("C-ASIN"))
+                    if (!catalogueTable.Columns.Contains("CASIN"))
                     {
                         transaction.Commit();
                         return new Response<bool> { Success = false, Message = "Missing C-ASIN column." };
                     }
 
                     var incomingCasins = catalogueTable.AsEnumerable()
-                        .Select(r => r["C-ASIN"]?.ToString()?.Trim())
+                        .Select(r => r["CASIN"]?.ToString()?.Trim())
                         .Where(c => !string.IsNullOrEmpty(c))
                         .Distinct().ToList();
 
@@ -331,11 +332,11 @@ namespace WIPAT.DAL
                     var existingStocks = _context.InitialStocks.Where(s => existingItemIds.Contains(s.ItemCatalogueId)).ToDictionary(s => s.ItemCatalogueId);
                     var externalStockDict = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-                    if (stockTable != null && stockTable.Columns.Contains("C-ASIN") && stockTable.Columns.Contains("OpeningStock"))
+                    if (stockTable != null && stockTable.Columns.Contains("CASIN") && stockTable.Columns.Contains("OpeningStock"))
                     {
                         foreach (DataRow row in stockTable.Rows)
                         {
-                            string sCasin = row["C-ASIN"]?.ToString()?.Trim();
+                            string sCasin = row["CASIN"]?.ToString()?.Trim();
                             if (!string.IsNullOrEmpty(sCasin) && int.TryParse(row["OpeningStock"]?.ToString(), out int stockVal))
                                 externalStockDict[sCasin] = stockVal;
                         }
@@ -345,7 +346,7 @@ namespace WIPAT.DAL
 
                     foreach (DataRow row in catalogueTable.Rows)
                     {
-                        string casin = row["C-ASIN"]?.ToString()?.Trim();
+                        string casin = row["CASIN"]?.ToString()?.Trim();
                         var item = existingItems[casin];
 
                         if (catalogueTable.Columns.Contains("Model") && !row.IsNull("Model")) item.Model = row["Model"].ToString();
@@ -478,17 +479,17 @@ namespace WIPAT.DAL
                 using (SqlBulkCopy bulkCopy = new SqlBulkCopy(conn, SqlBulkCopyOptions.KeepIdentity, transaction))
                 {
                     bulkCopy.DestinationTableName = "dbo.ItemCatalogues";
-                    bulkCopy.ColumnMappings.Add("Casin", "Casin");
-                    bulkCopy.ColumnMappings.Add("Model", "Model");
-                    bulkCopy.ColumnMappings.Add("Description", "Description");
-                    bulkCopy.ColumnMappings.Add("ColorName", "ColorName");
-                    bulkCopy.ColumnMappings.Add("Size", "Size");
-                    bulkCopy.ColumnMappings.Add("PCPK", "PCPK");
-                    bulkCopy.ColumnMappings.Add("CasePackQty", "CasePackQty");
-                    bulkCopy.ColumnMappings.Add("CreatedAt", "CreatedAt");
-                    bulkCopy.ColumnMappings.Add("CreatedById", "CreatedById");
-                    bulkCopy.ColumnMappings.Add("Notes", "Notes");
-                    bulkCopy.ColumnMappings.Add("ItemStatus", "ItemStatus");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Casin.Name, "Casin");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Model.Name, "Model");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Description.Name, "Description");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.ColorName.Name, "ColorName");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Size.Name, "Size");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.PCPK.Name, "PCPK");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.CasePackQty.Name, "CasePackQty");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.CreatedAt.Name, "CreatedAt");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.CreatedById.Name, "CreatedById");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.Notes.Name, "Notes");
+                    bulkCopy.ColumnMappings.Add(MasterColumnCatalogue.ItemStatusInt.Name, "ItemStatus");
 
                     bulkCopy.WriteToServer(dtInvalidItems);
                 }
@@ -556,7 +557,7 @@ namespace WIPAT.DAL
 
                 foreach (DataRow row in dtInitialStock.Rows)
                 {
-                    string casin = row["C-ASIN"].ToString();
+                    string casin = row["CASIN"].ToString();
                     if (itemCatalogueIdMap.ContainsKey(casin)) row["ItemCatalogueId"] = itemCatalogueIdMap[casin];
                     else missingCasins.Add(casin);
                 }

@@ -26,6 +26,7 @@ namespace WIPAT
         public event Action InputsChanged;
 
         #region Fields & Dependencies
+        private readonly ExcelValidationService _excelValidationService;
         private readonly WipSession _session;
         private readonly Action<string, StatusType> _setStatus;
         private readonly BusyOverlayHelper _busyHelper;
@@ -64,6 +65,7 @@ namespace WIPAT
             _setStatus = setStatus;
 
             _forecastFiles = new List<ForecastFileData>();
+            _excelValidationService = new ExcelValidationService(_session, _itemsRepository);
 
             InitializeComponent();
             ApplyTheme();
@@ -644,18 +646,18 @@ namespace WIPAT
             if (_forecastFiles.Count > 0)
             {
                 var f1 = _forecastFiles[0];
-                dgvForecast1.DataSource = f1.FullTable;
+                dgvForecast1.DataSource = f1.ForecastViewTable;
 
                 if (dgvForecast1.Columns.Contains(MasterColumnCatalogue.IsActive.Name)) dgvForecast1.Columns[MasterColumnCatalogue.IsActive.Name].Visible = false;
 
                 lblForecast1.Text = $"{f1.ProjectionMonth} {f1.ProjectionYear} (Current)";
                 lblForecast1.ForeColor = UITheme.GridRowText;
 
-                var stats1 = CalculateGridStats(f1.FullTable);
+                var stats1 = CalculateGridStats(f1.ForecastViewTable);
                 UpdateGridStats(1, stats1.Total, stats1.Active, stats1.Inactive, stats1.Invalid);
 
-                string colName1 = f1.FullTable.Columns.Contains(MasterColumnCatalogue.Casin.Name) ? MasterColumnCatalogue.Casin.Name : MasterColumnCatalogue.Casin.Name;
-                ColorRowsByGroup(dgvForecast1, colName1);
+                string colName1 = f1.ForecastViewTable.Columns.Contains(MasterColumnCatalogue.Casin.Name) ? MasterColumnCatalogue.Casin.Name : MasterColumnCatalogue.Casin.Name;
+                UITheme.ColorRowsByGroup(dgvForecast1, colName1);
 
                 if (pnlSearch1 != null) pnlSearch1.Visible = true;
             }
@@ -706,7 +708,7 @@ namespace WIPAT
             string targetColumn = dt != null && dt.Columns.Contains(casinName) ? casinName : (dt != null && dt.Columns.Contains(casinName) ? casinName : "");
             if (!string.IsNullOrEmpty(targetColumn))
             {
-                ColorRowsByGroup(dgvOrder, targetColumn);
+                UITheme.ColorRowsByGroup(dgvOrder, targetColumn);
             }
         }
 
@@ -724,7 +726,7 @@ namespace WIPAT
                         ? "" : $"[{targetColumn}] LIKE '%{searchText}%'";
 
                     dt.DefaultView.RowFilter = filter;
-                    ColorRowsByGroup(dgv, targetColumn);
+                    UITheme.ColorRowsByGroup(dgv, targetColumn);
                 }
                 catch (Exception ex)
                 {
@@ -733,26 +735,6 @@ namespace WIPAT
                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
                     SetStatusThreadSafe(msg, StatusType.Error);
                 }
-            }
-        }
-
-        private void ColorRowsByGroup(DataGridView dgv, string columnName)
-        {
-            if (dgv.Rows.Count == 0) return;
-            Color color1 = UITheme.SurfaceWhite;
-            Color color2 = UITheme.BackgroundCanvas;
-            Color currentColor = color1;
-            string previousValue = null;
-
-            foreach (DataGridViewRow row in dgv.Rows)
-            {
-                if (!dgv.Columns.Contains(columnName)) return;
-                var cellValue = row.Cells[columnName].Value?.ToString();
-                if (previousValue != null && cellValue != previousValue)
-                    currentColor = (currentColor == color1) ? color2 : color1;
-
-                row.DefaultCellStyle.BackColor = currentColor;
-                previousValue = cellValue;
             }
         }
 
@@ -813,7 +795,7 @@ namespace WIPAT
             _session.WipType = WipType.Analyst.ToString();
             _session.ForecastFiles = new List<ForecastFileData> { currentFile };
 
-            _session.AsinList = currentFile.FullTable.AsEnumerable()
+            _session.AsinList = currentFile.ForecastViewTable.AsEnumerable()
                 .Select(r => r[MasterColumnCatalogue.Casin.Name]?.ToString())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct()
@@ -860,7 +842,7 @@ namespace WIPAT
             if (e.TabPage == tabOpenNewForm)
             {
                 e.Cancel = true;
-                var myNewForm = new OrderEntryForm(_session, _orderManager, _excelSerice);
+                var myNewForm = new OrderEntryForm(_session, _orderManager, _excelSerice, _itemsRepository);
                 myNewForm.Show();
             }
         }
@@ -887,7 +869,7 @@ namespace WIPAT
                     try
                     {
                         _busyHelper.ShowBusy("Exporting Error Report...");
-                        _excelSerice.ExportGridToExcel(targetGrid, sfd.FileName, "Invalid Items");
+                        _excelValidationService.ExportGridToExcel(targetGrid, sfd.FileName, "Invalid Items");
                         MessageBox.Show("Error report exported successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     catch (Exception ex)
@@ -905,11 +887,10 @@ namespace WIPAT
             }
         }
 
-        private void btnMarkInvalid_Click(object sender, EventArgs e)
+        private async void btnMarkInvalid_Click(object sender, EventArgs e)
         {
             string casinName = MasterColumnCatalogue.Casin.Name;
-            string asinColName = dgvForecastErrors.Columns.Contains(casinName) ? casinName :
-                               (dgvForecastErrors.Columns.Contains(casinName) ? casinName : null);
+            string asinColName = dgvForecastErrors.Columns.Contains(casinName) ? casinName : null;
 
             if (string.IsNullOrEmpty(asinColName))
             {
@@ -935,44 +916,52 @@ namespace WIPAT
                 return;
             }
 
+            // Show the loading overlay
             _busyHelper.ShowBusy("Marking items as invalid with stock...");
 
             try
             {
                 int userId = _session.LoggedInUser.Id;
-                //  Generate the Invalid Items DataTable
+
+                // 1. Generate the Invalid Items DataTable
                 var invalidItemsResponse = new DataTableFactory().CreateInvalidItemDataTable(selectedAsins, userId);
                 if (!invalidItemsResponse.Success)
                 {
                     MessageBox.Show($"Failed to generate invalid items data: {invalidItemsResponse.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SetStatusThreadSafe("Failed to generate invalid items data.", StatusType.Error);
                     return;
                 }
 
-                //  Generate the Initial Stock DataTable
+                // 2. Generate the Initial Stock DataTable
                 var initialStockResponse = new DataTableFactory().CreateInvalidStockDataTable(selectedAsins, userId);
                 if (!initialStockResponse.Success)
                 {
                     MessageBox.Show($"Failed to generate initial stock data: {initialStockResponse.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SetStatusThreadSafe("Failed to generate initial stock data.", StatusType.Error);
                     return;
                 }
 
-                // Extract the actual DataTables
+                // 3. Extract the actual DataTables
                 DataTable dtInvalidItems = invalidItemsResponse.Data;
                 DataTable dtInitialStock = initialStockResponse.Data;
 
-                // Proceed with the bulk insert
-                var response = _itemsRepository.BulkInsertInvalidCatalogueImport(dtInvalidItems, dtInitialStock);
+                // 4. Proceed with the bulk insert ASYNCHRONOUSLY to prevent UI freezing
+                var response = await Task.Run(() =>
+                    _itemsRepository.BulkInsertInvalidCatalogueImport(dtInvalidItems, dtInitialStock)
+                );
 
                 if (response.Success)
                 {
                     MessageBox.Show($"{selectedAsins.Count} items have been marked as invalid along with their stock.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    SetStatusThreadSafe($"{selectedAsins.Count} items marked as invalid successfully.", StatusType.Success);
                 }
                 else
                 {
                     MessageBox.Show($"Failed to mark items as invalid: {response.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SetStatusThreadSafe("Failed to mark items.", StatusType.Error);
                 }
 
-
+                // 5. Clear the grid and hide the error panel
                 dgvForecastErrors.DataSource = null;
                 pnlForecastErrors.Visible = false;
             }
@@ -981,10 +970,13 @@ namespace WIPAT
                 string msg = $"An unexpected error occurred while marking items as invalid: {ex.Message}"
                            + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
                            + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
+
                 MessageBox.Show(msg, "System Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                SetStatusThreadSafe("System Error occurred.", StatusType.Error);
             }
             finally
             {
+                // Hide the loading overlay. The status bar will retain the messages set in the try/catch block.
                 _busyHelper.HideBusy();
             }
         }

@@ -433,7 +433,8 @@ namespace WIPAT
 
         private async void ItemsCatalogueMenuItem_Click(object sender, EventArgs e)
         {
-            using (var catalogueForm = new ItemsCatalogueForm(_itemsRepository, _stockRepository, _excelService))
+            //using (var catalogueForm = new ItemsCatalogueForm(_session, _itemsRepository, _stockRepository, _excelService))
+            using (var catalogueForm = new ItemsCatalogueForm(_session, _itemsRepository, _stockRepository))
             {
                 catalogueForm.ShowDialog();
 
@@ -458,7 +459,7 @@ namespace WIPAT
         #region Calulated WIP Management
         private void calculatedWipsToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            using (var form = new CalculatedWipsForm(_wipRepository, _excelService, _session.LoggedInUser.Id))
+            using (var form = new CalculatedWipsForm(_session, _wipRepository, _excelService, _session.LoggedInUser.Id, _itemsRepository))
             {
                 form.ShowDialog();
             }

@@ -98,7 +98,7 @@
             // 
             this.tabControlMain.Controls.Add(this.tabForecast);
             this.tabControlMain.Controls.Add(this.tabOrder);
-            this.tabControlMain.Controls.Add(this.tabOpenNewForm);
+            //this.tabControlMain.Controls.Add(this.tabOpenNewForm);
             this.tabControlMain.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabControlMain.DrawMode = System.Windows.Forms.TabDrawMode.OwnerDrawFixed;
             this.tabControlMain.ItemSize = new System.Drawing.Size(180, 45);
@@ -653,6 +653,7 @@
             this.tabOpenNewForm.TabIndex = 2;
             this.tabOpenNewForm.Text = "Open Other Tool";
             this.tabOpenNewForm.UseVisualStyleBackColor = true;
+            this.tabOpenNewForm.Enabled = false;
             // 
             // UploadForm
             // 

@@ -1,25 +1,30 @@
-﻿using System;
+﻿using OfficeOpenXml;
+using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL.Interfaces;
+using WIPAT.BLL.Services;
 using WIPAT.DAL.Interfaces;
+using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
-using WIPAT.Helpers;
 using WIPAT.Entities.ExcelTemplateDefinitions;
+using WIPAT.Helpers;
 
 namespace WIPAT
 {
     public partial class ItemsCatalogueForm : Form
     {
         #region Fields & Enums
+        private readonly WipSession _session;
+        private readonly ExcelValidationService excelValidationService;
         private readonly IItemsRepository _itemsRepository;
         private readonly IStockRepository _stockRepository;
-        private readonly IExcelService _excelService;
 
         private enum AppState { Idle, ViewingDB, PreviewingExcelAdd, PreviewingExcelUpdate }
         private AppState _currentState = AppState.Idle;
@@ -33,16 +38,21 @@ namespace WIPAT
 
         #region Constructor & Initialization
         public ItemsCatalogueForm(
-            IItemsRepository itemsRepository,
-            IStockRepository stockRepository,
-            IExcelService excelService)
+        WipSession session,
+        IItemsRepository itemsRepository,
+        IStockRepository stockRepository)
         {
             InitializeComponent();
+
+            // Required for EPPlus operations within this form
+            ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
+
             ApplyTheme();
 
+            _session = session;
             _itemsRepository = itemsRepository;
             _stockRepository = stockRepository;
-            _excelService = excelService;
+            excelValidationService = new ExcelValidationService(_session, _itemsRepository);
 
             UpdateUIState();
         }
@@ -309,6 +319,25 @@ namespace WIPAT
             }
             statusStrip.Refresh();
         }
+
+        private void ShowErrors(List<string> errors)
+        {
+            var validErrors = errors?.Where(e => !string.IsNullOrWhiteSpace(e)).ToList() ?? new List<string>();
+
+            if (validErrors.Count == 0) return;
+
+            int displayLimit = 15;
+            var errorsToDisplay = validErrors.Take(displayLimit).ToList();
+
+            string errorMessage = string.Join(Environment.NewLine, errorsToDisplay);
+
+            if (validErrors.Count > displayLimit)
+            {
+                errorMessage += $"{Environment.NewLine}{Environment.NewLine}... and {validErrors.Count - displayLimit} more error(s).";
+            }
+
+            MessageBox.Show(errorMessage, "Validation Errors", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
         #endregion
 
         #region Event Handlers
@@ -402,9 +431,7 @@ namespace WIPAT
                     {
                         SetStatus("Exporting data to Excel...", StatusType.Warning);
 
-                        // Because dgvItems is now securely generated using the ExportItemsCatalogue template,
-                        // exporting the grid structure inherently adheres to your dynamic layout requirements.
-                        Response<string> response = await Task.Run(() => _excelService.ExportGridToExcel(dgvItems, sfd.FileName, "Items"));
+                        Response<string> response = await Task.Run(() => excelValidationService.ExportGridToExcel(dgvItems, sfd.FileName, "Items"));
 
                         if (response.Success)
                         {
@@ -438,31 +465,49 @@ namespace WIPAT
         {
             try
             {
-                using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Excel Files|*.xlsx;*.xls", Title = "Select Excel File" })
+                using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Excel Files (*.xlsx;*.xls)|*.xlsx;*.xls", Title = "Select Excel File to Validate" })
                 {
                     if (ofd.ShowDialog() != DialogResult.OK) return;
 
-                    SetStatus("Reading Excel file...", StatusType.Warning);
+                    SetStatus("Validating and reading Excel file...", StatusType.Warning);
 
-                    bool isUpdate = (previewState == AppState.PreviewingExcelUpdate);
-                    var resExcel = await _excelService.ReadCatalogDataTableFromExcel(ofd.FileName, isUpdate);
+                    ImportExcelFileType selectedType = (previewState == AppState.PreviewingExcelUpdate)
+                        ? ImportExcelFileType.UpdateExistingCatalogue
+                        : ImportExcelFileType.AddNewItemsToCatalogue;
 
-                    if (!resExcel.Success || resExcel.Data.Count < 2)
+                    var requiredExcelColumns = FileTemplateFactory.GetImportTemplate(selectedType);
+                    string requiredWorkSheetName = ConfigurationManager.AppSettings["ItemCatalogueWorksheetName"] ?? "ItemCatalogues";
+
+                    // Instantiate a fresh service strictly for this upload. 
+                    var freshValidationService = new ExcelValidationService(_session, _itemsRepository);
+
+                    var response = await freshValidationService.ValidateAndLoadExcelAsync(
+                        ofd.FileName,
+                        selectedType,
+                        requiredWorkSheetName,
+                        requiredExcelColumns
+                    );
+
+                    if (!response.Success)
                     {
-                        SetStatus("Failed to read Excel file.", StatusType.Error);
-                        MessageBox.Show($"Error reading Excel file:\n{resExcel.Message}", "Import Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        var errorsToDisplay = response.MissingItems != null && response.MissingItems.Count > 0
+                                            ? response.MissingItems
+                                            : (!string.IsNullOrWhiteSpace(response.Message) ? new List<string> { response.Message } : new List<string>());
+
+                        ShowErrors(errorsToDisplay);
+                        SetStatus("Validation Failed.", StatusType.Error);
                         return;
                     }
 
-                    _pendingCatalogueTable = resExcel.Data[0];
-                    _pendingStockTable = resExcel.Data[1];
-
-                    if ((_pendingCatalogueTable == null || _pendingCatalogueTable.Rows.Count == 0))
+                    if (response.Data?.ValidatedData == null || response.Data.ValidatedData.Rows.Count == 0)
                     {
                         SetStatus("No data found in Excel file.", StatusType.Warning);
-                        MessageBox.Show("The selected Excel sheet appears to be empty.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        MessageBox.Show("The selected Excel sheet appears to be empty or contains no valid rows.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
+
+                    _pendingCatalogueTable = response.Data.ValidatedData;
+                    _pendingStockTable = response.Data.ValidatedData;
 
                     dgvItems.DataSource = null;
                     dgvItems.DataSource = _pendingCatalogueTable;

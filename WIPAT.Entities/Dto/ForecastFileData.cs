@@ -12,8 +12,8 @@ namespace WIPAT.Entities.Dto
     {
         public string FileName { get; set; }
         public string FilePath { get; set; }
-        public DataTable FullTable { get; set; }
-        public DataTable FilteredTable { get; set; }
+        public DataTable ForecastViewTable { get; set; }
+        public DataTable ForecastCompleteTable { get; set; }
         public string ProjectionMonth { get; set; }
         public string ProjectionYear { get; set; }
         public string ForecastFor { get; set; }
@@ -34,7 +34,7 @@ namespace WIPAT.Entities.Dto
         {
             if (BoundGrid != null)
             {
-                BoundGrid.DataSource = FullTable;
+                BoundGrid.DataSource = ForecastViewTable;
                 BoundGrid.Visible = true;
             }
 

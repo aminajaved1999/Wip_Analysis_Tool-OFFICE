@@ -28,15 +28,22 @@ namespace WIPAT.DAL
 
         public bool SaveInitialStocksToDatabase(List<InitialStock> stocks)
         {
-            try
+            // Added explicit transaction block to guarantee atomicity
+            using (var transaction = _context.Database.BeginTransaction())
             {
-                _context.InitialStocks.AddRange(stocks);
-                _context.SaveChanges();
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
+                try
+                {
+                    _context.InitialStocks.AddRange(stocks);
+                    _context.SaveChanges();
+
+                    transaction.Commit();
+                    return true;
+                }
+                catch (Exception)
+                {
+                    transaction.Rollback();
+                    return false;
+                }
             }
         }
 
@@ -102,171 +109,11 @@ namespace WIPAT.DAL
             }
         }
 
-        //unoptimised
-        public async Task<Response<bool>> _UpdateStockQtyInStockTable(DataTable stockDataTable, string wipColName, string month, string year)
-        {
-            var response = new Response<bool>();
-
-            // Date parsing logic
-            if (!DateTime.TryParse($"01 {month} {year}", out DateTime currentDate))
-            {
-                return new Response<bool> { Success = false, Message = "Invalid Month/Year format." };
-            }
-
-            DateTime previousDate = currentDate.AddMonths(-1);
-            string previousMonth = previousDate.ToString("MMMM");
-
-            // Required columns
-            string casinCol = "C-ASIN";
-            string stockCol = "Initial_Stock";
-            string orderCol = "Actual_Order";
-            string productionCol = $"Wip ({previousMonth})";
-            string commitmentPeriodCol = $"CommitmentPeriod ({month})";
-            string commitmentPeriod = "0";
-
-            try
-            {
-                #region Input Validation
-                if (stockDataTable == null || stockDataTable.Rows.Count == 0)
-                {
-                    return new Response<bool> { Success = false, Message = "The input data table is null or empty." };
-                }
-
-                var requiredColumns = new[] { casinCol, stockCol, orderCol, productionCol, commitmentPeriodCol };
-                foreach (var col in requiredColumns)
-                {
-                    if (!stockDataTable.Columns.Contains(col))
-                    {
-                        return new Response<bool> { Success = false, Message = $"Missing required column '{col}'." };
-                    }
-                }
-                #endregion Input Validation
-
-                #region Database Operations
-                using (var transaction = _context.Database.BeginTransaction())
-                {
-                    try
-                    {
-                        DataRow[] distinctCASIN = stockDataTable.DefaultView.ToTable(true, casinCol).Select();
-
-                        foreach (var item in distinctCASIN)
-                        {
-                            var Casin = item[casinCol]?.ToString();
-                            if (string.IsNullOrEmpty(Casin))
-                            {
-                                transaction.Rollback();
-                                return new Response<bool> { Success = false, Message = "A null or empty 'Casin' value was found." };
-                            }
-
-                            #region Filter Rows
-                            string filterExpression = $"[{casinCol}] = '{Casin.Replace("'", "''")}' and [{commitmentPeriodCol}] = {commitmentPeriod}";
-                            DataRow[] filteredRows = stockDataTable.Select(filterExpression);
-
-                            if (filteredRows == null || filteredRows.Length == 0)
-                            {
-                                // Fallback check for period 1
-                                string commitmentPeriod_ = "1";
-                                filterExpression = $"[{casinCol}] = '{Casin.Replace("'", "''")}' and [{commitmentPeriodCol}] = {commitmentPeriod_}";
-                                filteredRows = stockDataTable.Select(filterExpression);
-
-                                if (filteredRows == null || filteredRows.Length == 0)
-                                {
-                                    transaction.Rollback();
-                                    return new Response<bool>
-                                    {
-                                        Success = false,
-                                        Message = $"No matching rows found for Casin '{Casin}'."
-                                    };
-                                }
-                            }
-                            #endregion
-
-                            #region Parse & Calculate
-                            var orderValue = filteredRows[0][orderCol]?.ToString();
-                            var productionValue = filteredRows[0][productionCol]?.ToString();
-                            var stockValue = filteredRows[0][stockCol]?.ToString();
-
-                            if (!int.TryParse(orderValue, out int orderQty) || !int.TryParse(stockValue, out int stockQty))
-                            {
-                                transaction.Rollback();
-                                return new Response<bool>
-                                {
-                                    Success = false,
-                                    Message = $"Invalid numeric data for Casin '{Casin}'."
-                                };
-                            }
-
-                            if (!int.TryParse(productionValue, out int productionQty))
-                            {
-                                productionQty = 0; // Default to 0 if missing/invalid
-                            }
-
-                            int newStock = (productionQty + stockQty) - orderQty;
-                            if (newStock < 0) newStock = 0;
-                            #endregion
-
-                            #region Fetch & Update
-                            InitialStock initialStock = await _context.InitialStocks
-                                                .Include(s => s.ItemCatalogue)
-                                                .FirstOrDefaultAsync(s => s.ItemCatalogue.Casin == Casin);
-
-                            if (initialStock == null)
-                            {
-                                transaction.Rollback();
-                                return new Response<bool> { Success = false, Message = $"Initial stock not found for '{Casin}'." };
-                            }
-
-                            initialStock.OpeningStock = newStock;
-                            initialStock.UpdatedAt = DateTime.Now;
-                            initialStock.UpdatedById = _session.LoggedInUser.Id;
-
-                            int isSaved = await _context.SaveChangesAsync();
-
-                            if (isSaved <= 0)
-                            {
-                                transaction.Rollback();
-                                return new Response<bool> { Success = false, Message = $"Failed to update DB for '{Casin}'." };
-                            }
-                            #endregion
-                        }
-
-                        transaction.Commit();
-
-                        return new Response<bool>
-                        {
-                            Success = true,
-                            Data = true,
-                            Message = "Stock quantities updated successfully."
-                        };
-                    }
-                    catch (Exception ex)
-                    {
-                        transaction.Rollback();
-                        return new Response<bool>
-                        {
-                            Success = false,
-                            Message = $"An error occurred: {ex.Message}."
-                        };
-                    }
-                }
-                #endregion
-            }
-            catch (Exception ex)
-            {
-                return new Response<bool>
-                {
-                    Success = false,
-                    Message = $"Unexpected error: {ex.Message}."
-                };
-            }
-        }
-
-        //optimized
+        // Optimized
         public async Task<Response<bool>> UpdateStockQtyInStockTable(DataTable stockDataTable, string wipColName, string month, string year)
         {
             var response = new Response<bool>();
 
-            // Date parsing logic
             if (!DateTime.TryParse($"01 {month} {year}", out DateTime currentDate))
             {
                 return new Response<bool> { Success = false, Message = "Invalid Month/Year format." };
@@ -275,7 +122,6 @@ namespace WIPAT.DAL
             DateTime previousDate = currentDate.AddMonths(-1);
             string previousMonth = previousDate.ToString("MMMM");
 
-            // Required columns
             string casinCol = "CASIN";
             string stockCol = "Initial_Stock";
             string orderCol = "Actual_Order";
@@ -300,8 +146,7 @@ namespace WIPAT.DAL
                 }
                 #endregion
 
-                #region 2. Lightning Fast In-Memory Calculations (O(N) Complexity)
-                // Pre-calculate target stocks in a dictionary to completely eliminate DataTable.Select()
+                #region 2. In-Memory Calculations
                 var targetStocks = new Dictionary<string, int>();
 
                 var groupedByCasin = stockDataTable.AsEnumerable()
@@ -312,14 +157,10 @@ namespace WIPAT.DAL
                 {
                     string casin = group.Key;
 
-                    // Find Period 0 row, or fallback to Period 1 row (Exact mirror of your original logic)
                     var row = group.FirstOrDefault(r => r[commitmentPeriodCol]?.ToString() == "0")
                            ?? group.FirstOrDefault(r => r[commitmentPeriodCol]?.ToString() == "1");
 
-                    if (row == null)
-                    {
-                        return new Response<bool> { Success = false, Message = $"No matching rows found for Casin '{casin}'." };
-                    }
+                    if (row == null) return new Response<bool> { Success = false, Message = $"No matching rows found for Casin '{casin}'." };
 
                     var orderValue = row[orderCol]?.ToString();
                     var productionValue = row[productionCol]?.ToString();
@@ -330,114 +171,79 @@ namespace WIPAT.DAL
                         return new Response<bool> { Success = false, Message = $"Invalid numeric data for Casin '{casin}'." };
                     }
 
-                    if (!int.TryParse(productionValue, out int productionQty))
-                    {
-                        productionQty = 0; // Default to 0 if missing/invalid
-                    }
+                    if (!int.TryParse(productionValue, out int productionQty)) productionQty = 0;
 
                     int newStock = (productionQty + stockQty) - orderQty;
-                    if (newStock < 0) newStock = 0;
-
-                    targetStocks[casin] = newStock;
+                    targetStocks[casin] = Math.Max(0, newStock);
                 }
                 #endregion
 
                 #region 3. Bulk Database Operations
-                using (var transaction = _context.Database.BeginTransaction())
+                try
                 {
-                    try
+                    _context.Configuration.AutoDetectChangesEnabled = false;
+
+                    var casinsToFetch = targetStocks.Keys.ToList();
+                    var stocksToUpdate = new List<InitialStock>();
+
+                    int chunkSize = 1000;
+                    for (int i = 0; i < casinsToFetch.Count; i += chunkSize)
                     {
-                        // Disable change tracking temporarily to drastically speed up memory operations
-                        _context.Configuration.AutoDetectChangesEnabled = false;
+                        var chunk = casinsToFetch.Skip(i).Take(chunkSize).ToList();
+                        var stocks = await _context.InitialStocks
+                            .Include(s => s.ItemCatalogue)
+                            .Where(s => chunk.Contains(s.ItemCatalogue.Casin))
+                            .ToListAsync();
 
-                        var casinsToFetch = targetStocks.Keys.ToList();
-                        var stocksToUpdate = new List<InitialStock>();
-
-                        // Fetch records in chunks of 1000 to prevent SQL "Too Many Parameters" limits
-                        int chunkSize = 1000;
-                        for (int i = 0; i < casinsToFetch.Count; i += chunkSize)
-                        {
-                            var chunk = casinsToFetch.Skip(i).Take(chunkSize).ToList();
-
-                            var stocks = await _context.InitialStocks
-                                .Include(s => s.ItemCatalogue)
-                                .Where(s => chunk.Contains(s.ItemCatalogue.Casin))
-                                .ToListAsync();
-
-                            stocksToUpdate.AddRange(stocks);
-                        }
-
-                        // Validation: Did we find every InitialStock record we were looking for?
-                        var foundCasins = stocksToUpdate.Select(s => s.ItemCatalogue.Casin).ToHashSet();
-                        var missingCasins = casinsToFetch.Where(c => !foundCasins.Contains(c)).ToList();
-
-                        if (missingCasins.Any())
-                        {
-                            transaction.Rollback();
-                            // Only display up to 5 missing CASINs in the error to avoid massive error string bloat
-                            string missingStr = string.Join(", ", missingCasins.Take(5)) + (missingCasins.Count > 5 ? "..." : "");
-                            return new Response<bool> { Success = false, Message = $"Initial stock not found for: {missingStr}" };
-                        }
-
-                        // Apply updates to the tracked entities
-                        foreach (var stock in stocksToUpdate)
-                        {
-                            string casin = stock.ItemCatalogue.Casin;
-
-                            stock.OpeningStock = targetStocks[casin];
-                            stock.UpdatedAt = DateTime.Now;
-                            stock.UpdatedById = _session.LoggedInUser.Id;
-
-                            _context.Entry(stock).State = EntityState.Modified;
-                        }
-
-                        // A SINGLE SaveChanges call for everything!
-                        int isSaved = await _context.SaveChangesAsync();
-
-                        if (isSaved <= 0 && targetStocks.Count > 0)
-                        {
-                            transaction.Rollback();
-                            return new Response<bool> { Success = false, Message = "Failed to apply bulk update to the database." };
-                        }
-
-                        transaction.Commit();
-
-                        return new Response<bool>
-                        {
-                            Success = true,
-                            Data = true,
-                            Message = "Stock quantities updated successfully."
-                        };
+                        stocksToUpdate.AddRange(stocks);
                     }
-                    catch (Exception ex)
+
+                    var foundCasins = stocksToUpdate.Select(s => s.ItemCatalogue.Casin).ToHashSet();
+                    var missingCasins = casinsToFetch.Where(c => !foundCasins.Contains(c)).ToList();
+
+                    if (missingCasins.Any())
                     {
-                        transaction.Rollback();
-                        return new Response<bool>
-                        {
-                            Success = false,
-                            Message = $"An error occurred: {ex.Message}."
-                        };
+                        string missingStr = string.Join(", ", missingCasins.Take(5)) + (missingCasins.Count > 5 ? "..." : "");
+                        // Return early without saving; no transaction rollback needed because nothing was saved yet
+                        return new Response<bool> { Success = false, Message = $"Initial stock not found for: {missingStr}" };
                     }
-                    finally
+
+                    foreach (var stock in stocksToUpdate)
                     {
-                        // Always restore Entity Framework's default state tracking behavior
-                        _context.Configuration.AutoDetectChangesEnabled = true;
+                        stock.OpeningStock = targetStocks[stock.ItemCatalogue.Casin];
+                        stock.UpdatedAt = DateTime.Now;
+                        stock.UpdatedById = _session.LoggedInUser.Id;
+                        _context.Entry(stock).State = EntityState.Modified;
                     }
+
+                    // EF natively wraps this single call in a transaction automatically
+                    int isSaved = await _context.SaveChangesAsync();
+
+                    if (isSaved <= 0 && targetStocks.Count > 0)
+                    {
+                        return new Response<bool> { Success = false, Message = "Failed to apply bulk update to the database." };
+                    }
+
+                    return new Response<bool> { Success = true, Data = true, Message = "Stock quantities updated successfully." };
+                }
+                finally
+                {
+                    _context.Configuration.AutoDetectChangesEnabled = true;
                 }
                 #endregion
             }
             catch (Exception ex)
             {
-                return new Response<bool>
-                {
-                    Success = false,
-                    Message = $"Unexpected error: {ex.Message}."
-                };
+                return new Response<bool> { Success = false, Message = $"Unexpected error: {ex.Message}." };
             }
         }
 
         public int GetInitialStockValue(int itemCatalogueId)
         {
+            // Note: Explicit transactions are omitted here because this is a single, pure READ operation.
+            // Entity Framework wraps individual reads efficiently, and explicit transactions aren't required 
+            // unless establishing a specific isolation level for concurrency scenarios.
+
             // 1. Guard clauses to instantly detect DI or context setup issues
             if (_context == null)
             {
@@ -481,8 +287,8 @@ namespace WIPAT.DAL
             }
         }
 
-
         #region bulk insert active item catalogue along with stock
+
         public Response<bool> BulkInsertCatalogueImport(DataTable dtItemCatalogues, DataTable dtInitialStock)
         {
             var response = new Response<bool>();
@@ -549,7 +355,6 @@ namespace WIPAT.DAL
             }
         }
 
-        //// Step 1: Bulk Insert → Items Catalogue
         //// Step 1: Bulk Insert → Items Catalogue
         public Response<bool> BulkInsertToItemsCatalogue(DataTable dt, SqlConnection conn, SqlTransaction transaction)
         {
@@ -649,7 +454,6 @@ namespace WIPAT.DAL
             return response;
         }
 
-
         // Step 2: Map ItemCatalogueIds to InitialStock (after inserting ItemCatalogues)
         public Response<DataTable> MapItemCatalogueIds(DataTable dtItemCatalogues, DataTable dtInitialStock, SqlConnection conn, SqlTransaction transaction)
         {
@@ -719,12 +523,11 @@ namespace WIPAT.DAL
         // Step 3: Bulk Insert → InitialStock Table
         public Response<List<bool>> BulkInsertInitialStock(DataTable dt, SqlConnection conn, SqlTransaction transaction)
         {
-            var response = new Response<List<bool>>();
-
+            // Initialized the list immediately to avoid NullReferenceException in the catch block 
+            var response = new Response<List<bool>> { Data = new List<bool>() };
 
             try
             {
-
                 // Ensure required column 'OrderQty' exists in DataTable
                 dt.Columns.Add("OrderQty", typeof(int));
                 dt.Columns.Add("ProductionQty", typeof(int));
@@ -773,7 +576,6 @@ namespace WIPAT.DAL
                     response.Message = "A database error occurred while inserting items catalogue.";
                 }
             }
-
             catch (Exception ex)
             {
                 // Failure
@@ -786,7 +588,5 @@ namespace WIPAT.DAL
         }
 
         #endregion bulk insert active item catalogue along with stock
-
-
     }
 }

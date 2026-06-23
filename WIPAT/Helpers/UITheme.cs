@@ -205,6 +205,11 @@ namespace WIPAT.Helpers
         {
             if (grid == null) return;
 
+            // Enforce Read-Only Mode
+            grid.ReadOnly = true;
+            grid.AllowUserToAddRows = false;
+            grid.AllowUserToDeleteRows = false;
+
             // 1. Base Grid Styling
             grid.BackgroundColor = SurfaceWhite;
             grid.BorderStyle = BorderStyle.None;
@@ -419,6 +424,37 @@ namespace WIPAT.Helpers
         }
 
         #endregion --- GRID SUMMARY WIDGET ---
+
+
+        public static void ColorRowsByGroup(DataGridView dgv, string columnName)
+        {
+            if (dgv == null || dgv.Rows.Count == 0 || !dgv.Columns.Contains(columnName)) return;
+
+            Color color1 = SurfaceWhite;
+            Color color2 = BackgroundCanvas;
+            Color currentColor = color1;
+            string previousValue = null;
+
+            foreach (DataGridViewRow row in dgv.Rows)
+            {
+                var cellValue = row.Cells[columnName].Value?.ToString();
+
+                // If the value changes, flip the background color
+                if (previousValue != null && cellValue != previousValue)
+                {
+                    currentColor = (currentColor == color1) ? color2 : color1;
+                }
+
+                row.DefaultCellStyle.BackColor = currentColor;
+                previousValue = cellValue;
+            }
+        }
+
+        public static Color GenerateColorFromString(string input)
+        {
+            int hash = Math.Abs(input.GetHashCode());
+            return Color.FromArgb((hash % 50) + 200, ((hash / 256) % 50) + 200, ((hash / 65536) % 50) + 200);
+        }
 
         public static void SetFormIcon(Form form)
         {

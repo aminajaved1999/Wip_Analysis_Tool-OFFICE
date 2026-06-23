@@ -10,7 +10,8 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         AddNewItemsToCatalogue,
         UpdateExistingCatalogue,
         ForecastFile,
-        OrderFile
+        OrderFile,
+        EditWipFile
     }
 
     public enum ExportExcelFileType
@@ -163,6 +164,9 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
         public static readonly ColumnDefinition CreatedById = new ColumnDefinition("CreatedById", ExcelDataType.Int);
         public static readonly ColumnDefinition UpdatedAt = new ColumnDefinition("UpdatedAt", ExcelDataType.DateTime);
         public static readonly ColumnDefinition UpdatedById = new ColumnDefinition("UpdatedById", ExcelDataType.Int);
+
+        //
+        public static readonly ColumnDefinition UserWipQuantity = new ColumnDefinition("WipQuantity", ExcelDataType.Int);
     }
 
     #endregion
@@ -229,6 +233,12 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.Quantity),
                         new ColumnRule(MasterColumnCatalogue.MonthInteger),
                         new ColumnRule(MasterColumnCatalogue.Year)
+                    }.AsReadOnly();
+                case ImportExcelFileType.EditWipFile:
+                    return new List<ColumnRule>
+                    {
+                        new ColumnRule(MasterColumnCatalogue.Casin),
+                        new ColumnRule(MasterColumnCatalogue.WipQuantity)
                     }.AsReadOnly();
 
                 default:
@@ -432,7 +442,8 @@ namespace WIPAT.Entities.ExcelTemplateDefinitions
                         new ColumnRule(MasterColumnCatalogue.PCPK),
                         new ColumnRule(MasterColumnCatalogue.CasePackQty),
                         new ColumnRule(MasterColumnCatalogue.OpeningStock),
-                        new ColumnRule(MasterColumnCatalogue.Notes, true, false)
+                        new ColumnRule(MasterColumnCatalogue.Notes, true, false),
+                        new ColumnRule(MasterColumnCatalogue.ItemStatus)
                     };
 
                     if (isUpdate)

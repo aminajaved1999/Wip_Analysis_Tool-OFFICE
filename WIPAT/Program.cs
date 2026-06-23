@@ -38,10 +38,10 @@ namespace WIPAT
             // Initialize Repositories (Interact directly with DB)
             var userRepo = new UserRepository(dbContext);
             var itemsRepo = new ItemsRepository(dbContext);
-            var wipRepo = new WipRepository(dbContext);
             var stockRepo = new StockRepository(dbContext, session);
             var orderRepo = new OrderRepository(dbContext, session);
             var forecastRepo = new ForecastRepository(dbContext);
+            var wipRepo = new WipRepository(dbContext, stockRepo);
             var miscRepo = new MiscellaneousRepository(dbContext);
 
             // Initialize Business Logic (Managers/Services - Dependency Injection)

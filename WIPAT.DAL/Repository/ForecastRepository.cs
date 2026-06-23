@@ -74,7 +74,7 @@ namespace WIPAT.DAL
                     #endregion 3. Build Lookup Data
 
                     #region 4. Prepare Bulk Insert DataTable
-                    var bulkTableResponse = new DataTableFactory().CreateForecastBulkInsertTable(forecastData.FullTable, masterId, catalogueLookup, loggedInUserId);
+                    var bulkTableResponse = new DataTableFactory().CreateForecastBulkInsertTable(forecastData.ForecastViewTable, masterId, catalogueLookup, loggedInUserId);
 
                     if (!bulkTableResponse.Success)
                     {
@@ -214,7 +214,7 @@ namespace WIPAT.DAL
                 {
                     FileData = new ForecastFileData
                     {
-                        FullTable = new DataTable(),
+                        ForecastViewTable = new DataTable(),
                         Forecast = new ForecastMaster()
                     }
                 }
@@ -262,7 +262,7 @@ namespace WIPAT.DAL
                     }
 
                     result.Success = false;
-                    result.Data.FileData.FullTable = existingForecast.Data.Item1;
+                    result.Data.FileData.ForecastViewTable = existingForecast.Data.Item1;
                     result.Data.FileData.Forecast = existingForecast.Data.Item2;
                     result.Message = msg;
 
@@ -327,6 +327,13 @@ namespace WIPAT.DAL
                             .Include(m => m.Details.Select(d => d.ItemCatalogue))
                             .FirstOrDefault(m => m.Month == month && m.Year == year);
 
+
+
+                //var master = _context.ForecastMasters
+                //            .AsNoTracking()
+                //            .Include(m => m.Details.Select(d => d.ItemCatalogue))
+                //            .FirstOrDefault(m => m.Month == month && m.Year == year);
+
                 if (master == null)
                 {
                     return new Response<Tuple<DataTable, ForecastMaster>>
@@ -337,24 +344,23 @@ namespace WIPAT.DAL
                     };
                 }
 
-                var details = master.Details
-                    .Where(d => d.ItemCatalogue != null &&
-                            (d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active
-                            || master.IsContinueWithInactiveItems))
-                    .OrderBy(d => d.CASIN)
-                    .ToList();
+                //var details = master.Details
+                //    .Where(d => d.ItemCatalogue != null &&
+                //            (d.ItemCatalogue.ItemStatus == (int)CatalogueItemStatus.Active || master.IsContinueWithInactiveItems))
+                //    .OrderBy(d => d.CASIN)
+                //    .ToList();
 
-                if (!details.Any())
-                {
-                    return new Response<Tuple<DataTable, ForecastMaster>>
-                    {
-                        Success = false,
-                        Status = StatusType.Warning,
-                        Message = $"No active items found for {month} {year}."
-                    };
-                }
+                //if (!details.Any())
+                //{
+                //    return new Response<Tuple<DataTable, ForecastMaster>>
+                //    {
+                //        Success = false,
+                //        Status = StatusType.Warning,
+                //        Message = $"No active items found for {month} {year}."
+                //    };
+                //}
 
-                var tableResponse = new DataTableFactory().BuildForecastDataTable(details);
+                var tableResponse = new DataTableFactory().BuildForecastDataTable(master.Details);
 
                 if (!tableResponse.Success)
                 {

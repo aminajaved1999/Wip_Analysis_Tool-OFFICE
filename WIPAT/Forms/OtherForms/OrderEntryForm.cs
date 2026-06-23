@@ -1,25 +1,29 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL.Interfaces;
+using WIPAT.BLL.Services;
+using WIPAT.DAL;
+using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
+using WIPAT.Entities.BO;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Entities;
 using WIPAT.Entities.Enum;
 using WIPAT.Helpers;
-using WIPAT.Entities.BO;
 
 namespace WIPAT
 {
     public partial class OrderEntryForm : Form
     {
         #region Dependencies & Fields
-
+        private readonly ExcelValidationService excelValidationService;
+        private readonly IItemsRepository _itemsRepository;
         private readonly WipSession _session;
         private readonly IOrderManager _orderManager;
         private readonly IExcelService _excelService;
@@ -33,12 +37,13 @@ namespace WIPAT
         #endregion
 
         #region Constructor & Initialization
-
-        public OrderEntryForm(WipSession session, IOrderManager orderManager, IExcelService excelService)
+        public OrderEntryForm(WipSession session, IOrderManager orderManager, IExcelService excelService, IItemsRepository itemsRepo)
         {
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _orderManager = orderManager ?? throw new ArgumentNullException(nameof(orderManager));
             _excelService = excelService ?? throw new ArgumentNullException(nameof(excelService));
+            _itemsRepository = itemsRepo;
+            excelValidationService = new ExcelValidationService(_session, _itemsRepository);
 
             InitializeComponent();
 
@@ -232,7 +237,7 @@ namespace WIPAT
                 {
                     try
                     {
-                        _excelService.ExportGridToExcel(dgvInvalid, sfd.FileName, "Invalid Items");
+                        excelValidationService.ExportGridToExcel(dgvInvalid, sfd.FileName, "Invalid Items");
                         MessageBox.Show("Error report exported successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     catch (Exception ex)

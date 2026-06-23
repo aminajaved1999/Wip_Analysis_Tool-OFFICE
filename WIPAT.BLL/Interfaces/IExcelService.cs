@@ -12,7 +12,6 @@ namespace WIPAT.BLL.Interfaces
     {
        
         #region  validate excel file
-        Task<Response<string>> _ValidateItemCatalogueExcelFile(string filePath);
         Task<Response<string>> ValidateItemCatalogueExcelFile(string filePath, bool isUpdate = false);
         Task<Response<bool>> ValidateExcelFile(string filePath, string fileType, string requiredWorkSheetName, List<string> requiredExcelColumns,
             string requiredMonth = null,
@@ -29,14 +28,6 @@ namespace WIPAT.BLL.Interfaces
         Task<Response<List<DataTable>>> ReadCatalogDataTableFromExcel(string filePath, bool isUpdate = false);
         Response<List<WipDetail>> ReadEditWipExcel(string filePath);
         #endregion read excel
-
-
-        #region Export to Excel
-        void ExportWipDataToExcel<T>(List<T> data, string filePath, string sheetName);
-
-        Response<string> ExportGridToExcel(DataGridView grid, string filePath, string sheetName);
-
-        #endregion Export to Excel
 
         #region helpers
         string GetEnumValue(Enum value);

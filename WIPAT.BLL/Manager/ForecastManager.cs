@@ -38,6 +38,57 @@ namespace WIPAT.BLL.Managers
 
         #region Public Methods
 
+        public async Task<Response<ForecastFileData>> GetForecastFilePreviewAsync(string filePath, int commitmentPeriod)
+        {
+            string fileName = Path.GetFileName(filePath);
+            string sheetName = _excelService.GetEnumValue(ExcelSheetNames.Forecast);
+
+            // 1. FAST PEEK & DB CHECK (Bypass heavy validation if already in DB)
+            var peekRes = await Task.Run(() => _excelService.PeekForecastProjectionDate(filePath, sheetName));
+
+            if (peekRes.Success)
+            {
+                if (int.TryParse(peekRes.Data.Month, out int pMonth) && int.TryParse(peekRes.Data.Year, out int pYear))
+                {
+                    DateTime projDate = new DateTime(pYear, pMonth, 1);
+                    string monthName = projDate.ToString("MMMM");
+                    string yearStr = projDate.ToString("yyyy");
+
+                    var dbCheck = _forecastRepository.PerformForecastChecks2(fileName, monthName, yearStr);
+
+                    // In your repository, Success = false means the record ALREADY EXISTS
+                    if (!dbCheck.Success && dbCheck.Data != null && (dbCheck.Data.FileExists || dbCheck.Data.ProjectionExists))
+                    {
+                        // Bypass validation completely. Create a dummy object for HandleForecastFileAsync.
+                        var existingFileData = new ForecastFileData
+                        {
+                            FileName = fileName,
+                            FilePath = filePath,
+                            ProjectionMonth = monthName,
+                            ProjectionYear = yearStr
+                        };
+
+                        _lastPreviewedData = existingFileData; // Cache it so HandleForecastFileAsync catches it
+
+                        return new Response<ForecastFileData>
+                        {
+                            Success = true, // Force success so the UI moves to HandleForecastFileAsync seamlessly
+                            Message = dbCheck.Message,
+                            Data = existingFileData
+                        };
+                    }
+                }
+            }
+
+            // 2. HEAVY VALIDATION (Only runs if the file is genuinely new)
+            var res = await ProcessForecastFileInternal(filePath, commitmentPeriod, true);
+            if (res.Success)
+            {
+                _lastPreviewedData = res.Data;
+            }
+            return res;
+        }
+
         public async Task<Response<List<ForecastFileData>>> HandleForecastFileAsync(string filePath, List<ForecastFileData> currentSessionFiles, int commitmentPeriod, WipSession session)
         {
             var response = new Response<List<ForecastFileData>>();
@@ -108,9 +159,9 @@ namespace WIPAT.BLL.Managers
                 }
                 else
                 {
-                    if (dbCheck.Data?.FileData?.FullTable != null)
+                    if (dbCheck.Data?.FileData?.ForecastViewTable != null)
                     {
-                        newForecastData.FullTable = dbCheck.Data.FileData.FullTable;
+                        newForecastData.ForecastViewTable = dbCheck.Data.FileData.ForecastViewTable;
                         newForecastData.Forecast = dbCheck.Data.FileData.Forecast;
                         newForecastData.IsWipAlreadyCalculated = true;
 
@@ -133,58 +184,7 @@ namespace WIPAT.BLL.Managers
                 return new Response<List<ForecastFileData>> { Success = false, Message = $"Error: {ex.Message}" };
             }
         }
-
-        public async Task<Response<ForecastFileData>> GetForecastFilePreviewAsync(string filePath, int commitmentPeriod)
-        {
-            string fileName = Path.GetFileName(filePath);
-            string sheetName = _excelService.GetEnumValue(ExcelSheetNames.Forecast);
-
-            // 1. FAST PEEK & DB CHECK (Bypass heavy validation if already in DB)
-            var peekRes = await Task.Run(() => _excelService.PeekForecastProjectionDate(filePath, sheetName));
-
-            if (peekRes.Success)
-            {
-                if (int.TryParse(peekRes.Data.Month, out int pMonth) && int.TryParse(peekRes.Data.Year, out int pYear))
-                {
-                    DateTime projDate = new DateTime(pYear, pMonth, 1);
-                    string monthName = projDate.ToString("MMMM");
-                    string yearStr = projDate.ToString("yyyy");
-
-                    var dbCheck = _forecastRepository.PerformForecastChecks2(fileName, monthName, yearStr);
-
-                    // In your repository, Success = false means the record ALREADY EXISTS
-                    if (!dbCheck.Success && dbCheck.Data != null && (dbCheck.Data.FileExists || dbCheck.Data.ProjectionExists))
-                    {
-                        // Bypass validation completely. Create a dummy object for HandleForecastFileAsync.
-                        var existingFileData = new ForecastFileData
-                        {
-                            FileName = fileName,
-                            FilePath = filePath,
-                            ProjectionMonth = monthName,
-                            ProjectionYear = yearStr
-                        };
-
-                        _lastPreviewedData = existingFileData; // Cache it so HandleForecastFileAsync catches it
-
-                        return new Response<ForecastFileData>
-                        {
-                            Success = true, // Force success so the UI moves to HandleForecastFileAsync seamlessly
-                            Message = dbCheck.Message,
-                            Data = existingFileData
-                        };
-                    }
-                }
-            }
-
-            // 2. HEAVY VALIDATION (Only runs if the file is genuinely new)
-            var res = await ProcessForecastFileInternal(filePath, commitmentPeriod, true);
-            if (res.Success)
-            {
-                _lastPreviewedData = res.Data;
-            }
-            return res;
-        }
-
+       
         public async Task<Response<ForecastFileData>> LoadExistingForecastAsync(string month, string year)
         {
             return await Task.Run(() =>
@@ -206,8 +206,8 @@ namespace WIPAT.BLL.Managers
                     FilePath = "Database Source",
                     ProjectionMonth = month,
                     ProjectionYear = year,
-                    FullTable = dbResult.Data.Item1,
-                    FilteredTable = dbResult.Data.Item1,
+                    ForecastViewTable = dbResult.Data.Item1,
+                    ForecastCompleteTable = dbResult.Data.Item1,
                     Forecast = dbResult.Data.Item2,
                     ForecastFor = dbResult.Data.Item2?.ForecastingFor ?? $"{month} {year}",
                     IsWipAlreadyCalculated = dbResult.Data.Item2.IsWipCalculated,
@@ -288,28 +288,32 @@ namespace WIPAT.BLL.Managers
             string ProjectionMonth = projectionDate.ToString("MMMM");
             string ProjectionYear = projectionDate.ToString("yyyy");
             string forecastFor = projectionDate.AddMonths(commitmentPeriod + 1).ToString("MMMM yyyy");
-            
-            // 7. Get Processed DataTable via Factory
-            var processedTableResponse = new DataTableFactory().CreateProcessedForecastTable(rawTable, requiredColumns, allDbItems);
+
+            // 7. Get Complete Processed DataTable via Factory (Handles raw data AND missing items in one pass)
+            var processedTableResponse = new DataTableFactory().BuildCompleteProcessedForecastTable(
+                rawTable,
+                requiredColumns,
+                allDbItems,
+                _session.LoggedInUser.Id
+            );
 
             if (!processedTableResponse.Success)
             {
                 return new Response<ForecastFileData> { Success = false, Message = processedTableResponse.Message };
             }
 
-            // Extract the actual DataTable to proceed with your logic
+            // Extract the actual DataTable
             var processedTable = processedTableResponse.Data;
 
-            // 8. Generate Missing Items
-            await GenerateMissingItemsAsync(processedTable, commitmentPeriod, isFirstFile, valRes.IsContinueWithInactiveItems);
+            var uiTable = new DataTableFactory().BuildForecastUIDataTable(processedTable);
 
             response.Success = true;
             response.Data = new ForecastFileData
             {
                 FileName = Path.GetFileName(filePath),
                 FilePath = filePath,
-                FullTable = processedTable,
-                FilteredTable = processedTable.Copy(),
+                ForecastViewTable = uiTable,
+                ForecastCompleteTable = processedTable,       
                 ProjectionMonth = ProjectionMonth,
                 ProjectionYear = ProjectionYear,
                 ForecastFor = forecastFor,
@@ -320,61 +324,6 @@ namespace WIPAT.BLL.Managers
             return response;
         }
 
-        private async Task GenerateMissingItemsAsync(DataTable table, int commitmentPeriod, bool isFirstFile, bool includeInactiveItems)
-        {
-            var distinctSchedules = table.AsEnumerable()
-                .Select(r => new
-                {
-                    Period = r[MasterColumnCatalogue.CommitmentPeriod.Name].ToString(),
-                    PODate = r[MasterColumnCatalogue.PODate.Name].ToString(),
-                    Month = r[MasterColumnCatalogue.MonthString.Name].ToString(),
-                    Year = r[MasterColumnCatalogue.Year.Name].ToString()
-                })
-                .Distinct()
-                .OrderBy(x => int.TryParse(x.Period, out int p) ? p : 999)
-                .ToList();
-
-            if (!distinctSchedules.Any()) return;
-
-            var resItems = await _itemsRepository.GetActiveItemCatalogues(includeInactiveItems);
-            if (!resItems.Success || resItems.Data == null) return;
-
-            var dbCasinDict = resItems.Data
-                .GroupBy(x => x.Casin.Trim(), StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-
-            var fileCasins = table.AsEnumerable()
-                .Select(r => r[MasterColumnCatalogue.Casin.Name].ToString().Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var missingCasins = dbCasinDict.Keys.Except(fileCasins, StringComparer.OrdinalIgnoreCase).ToList();
-
-            foreach (var missingCasin in missingCasins)
-            {
-                int periodIndex = 0;
-                foreach (var schedule in distinctSchedules)
-                {
-                    var newRow = table.NewRow();
-                    newRow[MasterColumnCatalogue.Casin.Name] = missingCasin;
-                    newRow[MasterColumnCatalogue.RequestedQuantity.Name] = "0";
-                    newRow[MasterColumnCatalogue.CommitmentPeriod.Name] = schedule.Period;
-                    newRow[MasterColumnCatalogue.PODate.Name] = schedule.PODate;
-                    newRow[MasterColumnCatalogue.MonthString.Name] = schedule.Month;
-                    newRow[MasterColumnCatalogue.Year.Name] = schedule.Year;
-
-                    var dbItem = dbCasinDict[missingCasin];
-                    newRow[MasterColumnCatalogue.ItemStatus.Name] = dbItem.ItemStatus;
-
-                    newRow[MasterColumnCatalogue.ProjectionMonth.Name] = "";
-                    newRow[MasterColumnCatalogue.ProjectionYear.Name] = "";
-
-                    table.Rows.Add(newRow);
-                    periodIndex++;
-                }
-            }
-        }
-        
         #endregion
     }
 }

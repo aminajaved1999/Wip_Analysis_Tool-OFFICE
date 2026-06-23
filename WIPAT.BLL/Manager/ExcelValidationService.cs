@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -25,6 +26,8 @@ namespace WIPAT.BLL.Services
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _itemsRepository = itemsRepo ?? throw new ArgumentNullException(nameof(itemsRepo));
         }
+
+        #region ========================= MAIN VALIDATION =========================
 
         public async Task<Response<ExcelValidationResult>> ValidateAndLoadExcelAsync(
             string filePath,
@@ -68,6 +71,7 @@ namespace WIPAT.BLL.Services
                     using (var package = new ExcelPackage(new FileInfo(filePath)))
                     {
                         #region 2. Worksheet Validation
+
                         if (package.Workbook.Worksheets.Count == 0)
                         {
                             errors.Add("Workbook must contain at least one worksheet.");
@@ -90,12 +94,14 @@ namespace WIPAT.BLL.Services
                             errors.Add($"Worksheet '{requiredWorkSheetName}' contains no data.");
                             return;
                         }
-                        #endregion 2. Worksheet Validation
+
+                        #endregion
 
                         #region 3. Header Mapping & Validation
 
                         var headerLookup = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+                        // Map headers from the Excel file
                         for (int c = 1; c <= totalCols; c++)
                         {
                             var headerText = ws.Cells[1, c].Text?.Trim();
@@ -105,6 +111,7 @@ namespace WIPAT.BLL.Services
                             }
                         }
 
+                        // Check for missing REQUIRED columns
                         foreach (var rule in requiredExcelColumns)
                         {
                             bool exists = headerLookup.ContainsKey(rule.Definition.Name);
@@ -115,6 +122,21 @@ namespace WIPAT.BLL.Services
                             }
 
                             ValidatedData.Columns.Add(rule.Definition.Name, typeof(string));
+                        }
+
+                        // --- NEW: Explicitly reject EXTRA undefined columns ---
+                        var allowedColumnNames = new HashSet<string>(
+                            requiredExcelColumns.Select(r => r.Definition.Name),
+                            StringComparer.OrdinalIgnoreCase
+                        );
+
+                        var extraColumns = headerLookup.Keys
+                            .Where(header => !allowedColumnNames.Contains(header))
+                            .ToList();
+
+                        if (extraColumns.Any())
+                        {
+                            errors.Add($"Validation failed: File contains undefined extra columns ({string.Join(", ", extraColumns)}). Please strictly adhere to the template.");
                         }
 
                         // Add ItemStatus column ONLY for Forecast and Order files
@@ -160,10 +182,10 @@ namespace WIPAT.BLL.Services
                                     errors.Add($"Row {r}: '{rule.Definition.Name}' has invalid data type. Expected {rule.Definition.DataType}.");
                                 }
 
-                                // --- Validation: Strict check for ItemStatus ---
+                                // Strict check for ItemStatus
                                 if (rule.Definition.Name.Equals("ItemStatus", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    string[] allowedStatuses = { "active", "inactive", "invalid" };
+                                    string[] allowedStatuses = Enum.GetNames(typeof(CatalogueItemStatus)).Select(s => s.ToLower()).ToArray();
                                     if (!allowedStatuses.Contains(value.Trim().ToLower()))
                                     {
                                         errors.Add($"Row {r}: 'ItemStatus' must be 'Active', 'Inactive', or 'Invalid'. Found: '{value}'");
@@ -204,7 +226,7 @@ namespace WIPAT.BLL.Services
                             }
                         }
 
-                        // --- VALIDATION: Ensure single projection month and year ---
+                        // Ensure single projection month and year
                         if (uniqueMonths.Count > 1)
                         {
                             errors.Add($"Validation failed: Multiple projection months found ({string.Join(", ", uniqueMonths)}). The entire file must have the exact same projection month (e.g., all must be '{uniqueMonths.First()}').");
@@ -214,7 +236,6 @@ namespace WIPAT.BLL.Services
                         {
                             errors.Add($"Validation failed: Multiple projection years found ({string.Join(", ", uniqueYears)}). The entire file must have the exact same projection year (e.g., all must be '{uniqueYears.First()}').");
                         }
-                        // -------------------------------------------------------------
 
                         #endregion
                     }
@@ -239,7 +260,7 @@ namespace WIPAT.BLL.Services
                 {
                     if (dbCheckResponse.Data?.CasinStatuses != null &&
                         ValidatedData.Columns.Contains(MasterColumnCatalogue.Casin.Name) &&
-                        ValidatedData.Columns.Contains("ItemStatus"))
+                        ValidatedData.Columns.Contains(MasterColumnCatalogue.ItemStatus.Name))
                     {
                         foreach (DataRow row in ValidatedData.Rows)
                         {
@@ -249,11 +270,11 @@ namespace WIPAT.BLL.Services
                                 dbCheckResponse.Data.CasinStatuses.TryGetValue(casinVal.Trim(), out int? dbStatus) &&
                                 dbStatus.HasValue)
                             {
-                                row["ItemStatus"] = dbStatus.Value;
+                                row[MasterColumnCatalogue.ItemStatus.Name] = dbStatus.Value;
                             }
                             else
                             {
-                                row["ItemStatus"] = DBNull.Value;
+                                row[MasterColumnCatalogue.ItemStatus.Name] = DBNull.Value;
                             }
                         }
                     }
@@ -263,7 +284,6 @@ namespace WIPAT.BLL.Services
 
                 result.ValidatedData = ValidatedData;
 
-                // Read from our updated structure within Data
                 if (dbCheckResponse.Data != null)
                 {
                     result.MissingCasins = dbCheckResponse.Data.MissingCasins ?? new List<string>();
@@ -271,8 +291,6 @@ namespace WIPAT.BLL.Services
                     result.InvalidCasins = dbCheckResponse.Data.InvalidCasins ?? new List<string>();
                     result.ProblemItemsTable = dbCheckResponse.Data.ProblemItemsTable;
                     result.CasinStatuses = dbCheckResponse.Data.CasinStatuses;
-
-                    // NEW: 1. Map the boolean flag to the final returned result
                     result.HasIgnoredInactiveOrInvalidItems = dbCheckResponse.Data.HasIgnoredInactiveOrInvalidItems;
                 }
 
@@ -289,48 +307,11 @@ namespace WIPAT.BLL.Services
                 return BuildErrorResponse("Exception occurred during validation: " + ex.Message);
             }
         }
+        #endregion ========================= MAIN VALIDATION =========================
 
-        #region Helpers
-        private bool IsValidDataType(string value, ExcelDataType type)
-        {
-            if (string.IsNullOrWhiteSpace(value)) return false;
-            string val = value.Trim();
+        #region ========================= DATABASE VALIDATION =========================
 
-            switch (type)
-            {
-                case ExcelDataType.String:
-                    return true;
-                case ExcelDataType.Int:
-                    // Parse as int and ensure it is not negative
-                    return int.TryParse(val, out int result) && result >= 0;
-                case ExcelDataType.Decimal:
-                    // Parse as decimals and ensure it is not negative
-                    return decimal.TryParse(val, out decimal dResult) && dResult >= 0;
-                case ExcelDataType.DateTime:
-                    return DateTime.TryParse(val, out _) || double.TryParse(val, out _);
-                case ExcelDataType.Boolean:
-                    string bVal = val.ToLower();
-                    return bVal == "true" || bVal == "false" || bVal == "1" || bVal == "0";
-                default:
-                    return false;
-            }
-        }
-
-        private Response<ExcelValidationResult> BuildErrorResponse(List<string> errors)
-        {
-            return new Response<ExcelValidationResult>
-            {
-                Success = false,
-                Status = StatusType.Error,
-                Message = $"Validation failed with {errors.Count} error(s).",
-                MissingItems = errors
-            };
-        }
-
-        private Response<ExcelValidationResult> BuildErrorResponse(string error) => BuildErrorResponse(new List<string> { error });
-        #endregion
-
-        private async Task<Response<ExcelValidationResult>> ValidateItemsFromDbAsync(ImportExcelFileType fileType,IEnumerable<string> casinList,string filePath)
+        private async Task<Response<ExcelValidationResult>> ValidateItemsFromDbAsync(ImportExcelFileType fileType, IEnumerable<string> casinList, string filePath)
         {
             #region 1. Initialization & Deduplication
 
@@ -344,8 +325,9 @@ namespace WIPAT.BLL.Services
                 DeactivatedItems = new List<string>()
             };
 
-            // If it's not a Forecast or Order file, we don't need to validate CASINs against the DB
-            if (fileType != ImportExcelFileType.ForecastFile && fileType != ImportExcelFileType.OrderFile)
+            // If it's not a Forecast or Order file or UpdateExistingCatalogue, we don't need to validate CASINs against the DB
+            if (fileType != ImportExcelFileType.ForecastFile && fileType != ImportExcelFileType.OrderFile
+                && fileType != ImportExcelFileType.UpdateExistingCatalogue)
             {
                 return response;
             }
@@ -371,176 +353,359 @@ namespace WIPAT.BLL.Services
             var invalid = new List<string>();
             var casinStatuses = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
 
-            // Loop through our fast in-memory list instead of hitting the database
             foreach (var c in distinctCASINs)
             {
                 if (dbStatuses.TryGetValue(c, out int status))
                 {
-                    casinStatuses[c] = status; // Map it for later injection
+                    casinStatuses[c] = status;
 
-                    if (status == (int)CatalogueItemStatus.Inactive) // status = 0
+                    if (status == (int)CatalogueItemStatus.Inactive)
                         inactive.Add(c);
-                    else if (status == (int)CatalogueItemStatus.Invalid)  // status = 2
+                    else if (status == (int)CatalogueItemStatus.Invalid)
                         invalid.Add(c);
                 }
                 else
                 {
-                    // If the key wasn't in the returned dictionary, it doesn't exist in the DB
                     casinStatuses[c] = null;
                     missing.Add(c);
                 }
             }
 
-            resultData.CasinStatuses = casinStatuses; // Store map for the main Validation method
+            resultData.CasinStatuses = casinStatuses;
 
             #endregion
 
-            #region 4. Problem Items Handling & User Prompts
-
-            if (missing.Any() || inactive.Any() || invalid.Any())
+            if (fileType == ImportExcelFileType.ForecastFile || fileType == ImportExcelFileType.OrderFile)
             {
-                DataTable problemTable = CreateProblemItemsDataTable(inactive, invalid, missing, filePath);
+                #region 4. Problem Items Handling & User Prompts
 
-                // Update our specialized data class
-                resultData.MissingCasins = missing;
-                resultData.InactiveCasins = inactive;
-                resultData.InvalidCasins = invalid;
-                resultData.ProblemItemsTable = problemTable;
-
-                // Update wrapper response to preserve backward compatibility for base class Error properties
-                response.MissingItems = missing;
-                response.DeactivatedItems = inactive.Concat(invalid).ToList();
-
-                StringBuilder dialogText = new StringBuilder();
-                dialogText.AppendLine("The following items need your attention:\n");
-
-                if (missing.Any())
+                if (missing.Any() || inactive.Any() || invalid.Any())
                 {
-                    dialogText.AppendLine($"Missing in Catalogue ({missing.Count}):");
-                    dialogText.AppendLine(string.Join(", ", missing));
-                    dialogText.AppendLine();
-                }
-
-                if (inactive.Any())
-                {
-                    dialogText.AppendLine($"Inactive in Catalogue ({inactive.Count}):");
-                    dialogText.AppendLine(string.Join(", ", inactive));
-                    dialogText.AppendLine();
-                }
-
-                if (invalid.Any())
-                {
-                    dialogText.AppendLine($"Invalid in Catalogue ({invalid.Count}):");
-                    dialogText.AppendLine(string.Join(", ", invalid));
-                    dialogText.AppendLine();
-                }
-
-                // --- 4a. Hard Fail on Missing Items ---
-                if (missing.Any())
-                {
-                    dialogText.AppendLine("Process cancelled. You must add the missing items to the catalogue first.");
-
-                    MessageBox.Show(dialogText.ToString(),
-                        "Problem Items - Action Required",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
-
-                    response.Success = false;
-                    response.Status = StatusType.Error;
-                    response.Message = $"Process cancelled. Found {missing.Count} missing item(s).";
-                    return response;
-                }
-
-                // --- 4b. Handle Inactive and Invalid Items Based on File Type ---
-                if (inactive.Any() || invalid.Any())
-                {
-                    int totalProblematic = inactive.Count + invalid.Count;
-
-                    if (fileType == ImportExcelFileType.ForecastFile)
+                    var problemTableResponse = new DataTableFactory().CreateProblemItemsDataTable(missing, inactive, filePath);
+                    if (!problemTableResponse.Success)
                     {
-                        dialogText.AppendLine("Do you want to create the WIP and ignore calculating WIP for these CASINs?\n");
-                        dialogText.AppendLine("• Click 'Yes' to ignore them and continue.");
-                        dialogText.AppendLine("• Click 'No' to cancel.");
-
-                        DialogResult result = MessageBox.Show(dialogText.ToString(),
-                            "Problem Items - Action Required",
-                            MessageBoxButtons.YesNo,
-                            MessageBoxIcon.Warning);
-
-                        if (result == DialogResult.No)
-                        {
-                            response.Success = false;
-                            response.Status = StatusType.Error;
-                            response.Message = $"Process cancelled by user. Found {totalProblematic} inactive/invalid items.";
-                        }
-                        else
-                        {
-                            // User opted to ignore: Set flag to true to inform the calling method
-                            resultData.HasIgnoredInactiveOrInvalidItems = true;
-                            response.Message = $"File validated successfully (Ignored {totalProblematic} inactive/invalid CASINs).";
-                        }
+                        response.Success = false;
+                        response.Message = problemTableResponse.Message;
+                        return response;
                     }
-                    else
-                    {
-                        dialogText.AppendLine("Process cancelled. Order files cannot contain inactive or invalid items.");
+                    var problemTable = problemTableResponse.Data;
 
-                        MessageBox.Show(dialogText.ToString(),
-                            "Problem Items - Action Required",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Error);
+                    resultData.MissingCasins = missing;
+                    resultData.InactiveCasins = inactive;
+                    resultData.InvalidCasins = invalid;
+                    resultData.ProblemItemsTable = problemTable;
+
+                    StringBuilder dialogText = new StringBuilder();
+                    dialogText.AppendLine("The following items need your attention:\n");
+
+                    if (missing.Any())
+                    {
+                        dialogText.AppendLine($"Missing in Catalogue ({missing.Count}):");
+                        dialogText.AppendLine(string.Join(", ", missing));
+                        dialogText.AppendLine();
+                    }
+
+                    if (inactive.Any())
+                    {
+                        dialogText.AppendLine($"Inactive in Catalogue ({inactive.Count}):");
+                        dialogText.AppendLine(string.Join(", ", inactive));
+                        dialogText.AppendLine();
+                    }
+
+                    if (invalid.Any())
+                    {
+                        dialogText.AppendLine($"Invalid in Catalogue ({invalid.Count}):");
+                        dialogText.AppendLine(string.Join(", ", invalid));
+                        dialogText.AppendLine();
+                    }
+
+                    // 4a. Hard Fail on Missing Items
+                    if (missing.Any())
+                    {
+                        dialogText.AppendLine("Process cancelled. You must add the missing items to the catalogue first.");
 
                         response.Success = false;
                         response.Status = StatusType.Error;
-                        response.Message = $"Process cancelled. Found {totalProblematic} inactive/invalid item(s).";
+                        response.Message = $"Process cancelled. Found {missing.Count} missing item(s).";
+                        response.MissingItems = new List<string> { dialogText.ToString().Trim() };
+                        return response;
+                    }
+
+                    // 4b. Handle Inactive and Invalid Items Based on File Type
+                    if (inactive.Any() || invalid.Any())
+                    {
+                        int totalProblematic = inactive.Count + invalid.Count;
+
+                        if (fileType == ImportExcelFileType.ForecastFile)
+                        {
+                            dialogText.AppendLine("Do you want to create the WIP and ignore calculating WIP for these CASINs?\n");
+                            dialogText.AppendLine("• Click 'Yes' to ignore them and continue.");
+                            dialogText.AppendLine("• Click 'No' to cancel.");
+
+                            DialogResult result = MessageBox.Show(dialogText.ToString(),
+                                "Problem Items - Action Required",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Warning);
+
+                            if (result == DialogResult.No)
+                            {
+                                response.Success = false;
+                                response.Status = StatusType.Error;
+                                response.Message = $"Process cancelled by user. Found {totalProblematic} inactive/invalid items.";
+                                response.MissingItems = new List<string> { "Process cancelled by user." };
+                            }
+                            else
+                            {
+                                resultData.HasIgnoredInactiveOrInvalidItems = true;
+                                response.Message = $"File validated successfully (Ignored {totalProblematic} inactive/invalid CASINs).";
+                            }
+                        }
+                        else
+                        {
+                            dialogText.AppendLine("Process cancelled. Order files cannot contain inactive or invalid items.");
+
+                            response.Success = false;
+                            response.Status = StatusType.Error;
+                            response.Message = $"Process cancelled. Found {totalProblematic} inactive/invalid item(s).";
+                            response.MissingItems = new List<string> { dialogText.ToString().Trim() };
+                        }
                     }
                 }
-            }
 
-            #endregion
+                #endregion
+            }
+            else if (fileType == ImportExcelFileType.UpdateExistingCatalogue)
+            {
+                if (missing.Any())
+                {
+                    var problemTableResponse = new DataTableFactory().CreateProblemItemsDataTable(missing, null, filePath);
+                    if (!problemTableResponse.Success)
+                    {
+                        response.Success = false;
+                        response.Message = problemTableResponse.Message;
+                        return response;
+                    }
+
+
+                    StringBuilder dialogText = new StringBuilder();
+                    dialogText.AppendLine("The following items need your attention:\n");
+
+                    string missingItemsList = string.Join(", ", missing);
+
+                    string errorMessage = $"Validation failed: {missing.Count} items in the file were not found in the catalogue.\n" +
+                                          $"Missing Items: {missingItemsList}\n\n" +
+                                          $"Please create these items in the catalogue before updating them.";
+
+                    dialogText.AppendLine(errorMessage);
+
+                    response.Success = false;
+                    response.Status = StatusType.Error;
+                    response.Message = "Validation failed due to missing items.";
+                    response.MissingItems = new List<string> { dialogText.ToString().Trim() };
+                    response.ProblemItemsTable = problemTableResponse.Data;
+                    return response;
+                }
+            }
 
             return response;
         }
 
-        private DataTable CreateProblemItemsDataTable(List<string> inactiveItems, List<string> invalidItems, List<string> missingItems, string filePath)
+        #endregion ========================= DATABASE VALIDATION =========================
+
+        #region ========================= EXPORT =========================
+        public void ExportWipDataToExcel<T>(List<T> data, string fileName, string worksheetName)
         {
-            DataTable dt = new DataTable("ProblemItems");
-
-            const string FileNameColumn = "FileName";
-            const string ReasonColumn = "Reason";
-
-            dt.Columns.Add(MasterColumnCatalogue.Casin.Name, typeof(string));
-            dt.Columns.Add(FileNameColumn, typeof(string));
-            dt.Columns.Add(ReasonColumn, typeof(string));
-
-            string fileName = Path.GetFileName(filePath);
-
-            if (inactiveItems != null)
+            try
             {
-                foreach (var casin in inactiveItems)
+                #region validate inputs
+                if (data == null || !data.Any())
                 {
-                    dt.Rows.Add(casin, fileName, "Inactive");
+                    MessageBox.Show("Data list is null or empty.", "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
                 }
-            }
 
-            if (invalidItems != null)
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    MessageBox.Show("File name is empty.", "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(worksheetName))
+                {
+                    MessageBox.Show("Worksheet name is empty.", "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                #endregion validate inputs
+
+                var saveFileDialog = new SaveFileDialog
+                {
+                    FileName = fileName,
+                    Filter = "Excel Files (*.xlsx)|*.xlsx",
+                    Title = "Save WIP Data to Excel"
+                };
+
+                if (saveFileDialog.ShowDialog() != DialogResult.OK) return;
+
+                ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
+
+                using (var package = new ExcelPackage())
+                {
+                    var worksheet = package.Workbook.Worksheets.Add(worksheetName);
+
+                    if (!data.Any())
+                    {
+                        MessageBox.Show("No data to export.", "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    var props = typeof(T).GetProperties();
+
+                    for (int i = 0; i < props.Length; i++)
+                        worksheet.Cells[1, i + 1].Value = props[i].Name;
+
+                    for (int row = 0; row < data.Count; row++)
+                    {
+                        for (int col = 0; col < props.Length; col++)
+                        {
+                            worksheet.Cells[row + 2, col + 1].Value = props[col].GetValue(data[row]);
+                        }
+                    }
+
+                    using (var range = worksheet.Cells[1, 1, 1, props.Length])
+                    {
+                        range.Style.Font.Bold = true;
+                        range.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                        range.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.LightGray);
+                        range.Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+                    }
+
+                    if (worksheet.Dimension != null)
+                        worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
+
+                    package.SaveAs(new FileInfo(saveFileDialog.FileName));
+                }
+
+                MessageBox.Show($"WIP data successfully exported to:\n{saveFileDialog.FileName}",
+                                "Export Successful", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
             {
-                foreach (var casin in invalidItems)
-                {
-                    dt.Rows.Add(casin, fileName, "Invalid");
-                }
+                MessageBox.Show($"An error occurred while exporting to Excel:\n{ex.Message}",
+                                "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-
-            if (missingItems != null)
-            {
-                foreach (var casin in missingItems)
-                {
-                    dt.Rows.Add(casin, fileName, "Missing");
-                }
-            }
-
-            return dt;
         }
-        
+
+        public Response<string> ExportGridToExcel(DataGridView grid, string filePath, string sheetName)
+        {
+            var response = new Response<string>();
+            #region validate inputs 
+            if (grid == null)
+            {
+                response.Success = false;
+                response.Message = "DataGridView is null.";
+                return response;
+            }
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                response.Success = false;
+                response.Message = "File path is empty.";
+                return response;
+            }
+
+            if (string.IsNullOrWhiteSpace(sheetName))
+            {
+                response.Success = false;
+                response.Message = "Sheet name is empty.";
+                return response;
+            }
+            #endregion validate inputs 
+
+            try
+            {
+                using (var package = new ExcelPackage(new FileInfo(filePath)))
+                {
+                    var ws = package.Workbook.Worksheets.Add(sheetName);
+
+                    for (int i = 0; i < grid.Columns.Count; i++)
+                    {
+                        var cell = ws.Cells[1, i + 1];
+                        cell.Value = grid.Columns[i].HeaderText;
+
+                        cell.Style.Font.Bold = true;
+                        cell.Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                        cell.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
+                    }
+
+                    for (int i = 0; i < grid.Rows.Count; i++)
+                    {
+                        for (int j = 0; j < grid.Columns.Count; j++)
+                        {
+                            var value = grid.Rows[i].Cells[j].Value;
+                            ws.Cells[i + 2, j + 1].Value = value?.ToString();
+                        }
+                    }
+
+                    ws.Cells.AutoFitColumns();
+                    package.Save();
+                }
+
+                response.Success = true;
+                response.Message = "File exported successfully.";
+                response.Data = filePath;
+                response.Status = StatusType.Success;
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.Message = $"Export Failed: {ex.Message}";
+                response.Data = null;
+                response.Status = StatusType.Error;
+            }
+
+            return response;
+        }
+
+        #endregion ========================= EXPORT =========================
+
+        #region Helpers
+        private bool IsValidDataType(string value, ExcelDataType type)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            string val = value.Trim();
+
+            switch (type)
+            {
+                case ExcelDataType.String:
+                    return true;
+                case ExcelDataType.Int:
+                    return int.TryParse(val, out int result) && result >= 0;
+                case ExcelDataType.Decimal:
+                    return decimal.TryParse(val, out decimal dResult) && dResult >= 0;
+                case ExcelDataType.DateTime:
+                    return DateTime.TryParse(val, out _) || double.TryParse(val, out _);
+                case ExcelDataType.Boolean:
+                    string bVal = val.ToLower();
+                    return bVal == "true" || bVal == "false" || bVal == "1" || bVal == "0";
+                default:
+                    return false;
+            }
+        }
+
+        private Response<ExcelValidationResult> BuildErrorResponse(List<string> errors)
+        {
+            return new Response<ExcelValidationResult>
+            {
+                Success = false,
+                Status = StatusType.Error,
+                Message = $"Validation failed with {errors.Count} error(s).",
+                MissingItems = errors
+            };
+        }
+
+        private Response<ExcelValidationResult> BuildErrorResponse(string error) => BuildErrorResponse(new List<string> { error });
+        #endregion
+
         public class ExcelValidationResult
         {
             public DataTable ValidatedData { get; set; }
@@ -551,7 +716,5 @@ namespace WIPAT.BLL.Services
             public Dictionary<string, int?> CasinStatuses { get; set; } = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
             public bool HasIgnoredInactiveOrInvalidItems { get; set; }
         }
-
-        
     }
 }

@@ -133,37 +133,165 @@ namespace WIPAT.Entities
             return response;
         }
 
-        // 2. Raw Excel -> Processed UI Table
-        public Response<DataTable> CreateProcessedForecastTable(DataTable rawTable, List<string> requiredColumns, Dictionary<string, ItemCatalogue> allDbItems)
+        public DataTable BuildForecastUIDataTable(DataTable processedTable)
+        {
+            var uiTable = new DataTable();
+            var templateRules = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.ForecastUIDataTable);
+
+            // 1. Setup UI Schema strictly using ForecastUIDataTable
+            foreach (var rule in templateRules)
+            {
+                uiTable.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
+            }
+
+            // 2. Map data from backend table to UI table
+            foreach (DataRow row in processedTable.Rows)
+            {
+                var newRow = uiTable.NewRow();
+
+                foreach (DataColumn col in uiTable.Columns)
+                {
+                    string colName = col.ColumnName;
+
+                    // Handle the ItemStatus integer -> string conversion for the UI
+                    if (colName == MasterColumnCatalogue.ItemStatus.Name)
+                    {
+                        string statusBackendCol = processedTable.Columns.Contains(MasterColumnCatalogue.ItemStatusInt.Name)
+                            ? MasterColumnCatalogue.ItemStatusInt.Name
+                            : (processedTable.Columns.Contains(MasterColumnCatalogue.ItemStatus.Name) ? MasterColumnCatalogue.ItemStatus.Name : null);
+
+                        if (statusBackendCol != null && row[statusBackendCol] != DBNull.Value)
+                        {
+                            if (int.TryParse(row[statusBackendCol].ToString(), out int statusInt))
+                            {
+                                newRow[colName] = ((CatalogueItemStatus)statusInt).ToString();
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Standard mapping for matching columns
+                    if (processedTable.Columns.Contains(colName) && row[colName] != DBNull.Value)
+                    {
+                        newRow[colName] = row[colName];
+                    }
+                }
+                uiTable.Rows.Add(newRow);
+            }
+
+            return uiTable;
+        }
+
+        // 2. Raw Excel -> DB Bulk Insert Table
+        public Response<DataTable> BuildCompleteProcessedForecastTable(DataTable rawTable, List<string> requiredColumns, Dictionary<string, ItemCatalogue> allDbItems, int loggedInUserId)
         {
             var response = new Response<DataTable>();
             try
             {
                 var processedTable = new DataTable();
-                foreach (var col in requiredColumns) processedTable.Columns.Add(col);
-                processedTable.Columns.Add("Month");
-                processedTable.Columns.Add("Year");
-                processedTable.Columns.Add("ItemStatus", typeof(int));
 
+                // 1. Build schema dynamically using the Central Template Factory
+                var templateRules = FileTemplateFactory.GetDataTableTemplate(DataTableTemplateType.ForecastBulkInsertTable);
+                foreach (var rule in templateRules)
+                {
+                    processedTable.Columns.Add(rule.Definition.Name, rule.Definition.DataType.ToDotNetType());
+                }
+
+                var fileCasins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var distinctSchedules = new HashSet<(string Period, string PODate, string Month, int Year)>();
+
+                // 2. Process and populate rows from the uploaded file
                 foreach (DataRow row in rawTable.Rows)
                 {
                     string casin = row[MasterColumnCatalogue.Casin.Name].ToString().Trim();
                     if (string.IsNullOrEmpty(casin)) continue;
 
+                    fileCasins.Add(casin);
                     var newRow = processedTable.NewRow();
-                    foreach (var col in requiredColumns) newRow[col] = row[col];
 
-                    if (DateTime.TryParse(row[MasterColumnCatalogue.PODate.Name].ToString(), out DateTime poDate))
+                    // Copy values from rawTable for required columns
+                    foreach (var col in requiredColumns)
                     {
-                        newRow["Month"] = poDate.ToString("MMMM");
-                        newRow["Year"] = poDate.Year.ToString();
+                        if (processedTable.Columns.Contains(col) && rawTable.Columns.Contains(col))
+                        {
+                            newRow[col] = row[col] != DBNull.Value ? row[col] : DBNull.Value;
+                        }
                     }
 
-                    newRow["ItemStatus"] = allDbItems.TryGetValue(casin, out var dbItem)
-                        ? dbItem.ItemStatus
-                        : (int)CatalogueItemStatus.Invalid;
+                    // Extract Date Schedule logic
+                    string monthString = string.Empty;
+                    int yearInt = 0;
+                    string poDateString = string.Empty;
+
+                    if (rawTable.Columns.Contains(MasterColumnCatalogue.PODate.Name))
+                    {
+                        poDateString = row[MasterColumnCatalogue.PODate.Name].ToString();
+                        if (DateTime.TryParse(poDateString, out DateTime poDate))
+                        {
+                            monthString = poDate.ToString("MMMM");
+                            yearInt = poDate.Year;
+                            newRow[MasterColumnCatalogue.MonthString.Name] = monthString;
+                            newRow[MasterColumnCatalogue.Year.Name] = yearInt;
+                        }
+                    }
+
+                    string period = rawTable.Columns.Contains(MasterColumnCatalogue.CommitmentPeriod.Name)
+                        ? row[MasterColumnCatalogue.CommitmentPeriod.Name].ToString() : "0";
+
+                    // Track unique schedules to apply to missing CASINs later
+                    distinctSchedules.Add((period, poDateString, monthString, yearInt));
+
+                    // Resolve DB Item details (Status, Id, Model)
+                    if (allDbItems.TryGetValue(casin, out var dbItem))
+                    {
+                        newRow[MasterColumnCatalogue.ItemStatusInt.Name] = dbItem.ItemStatus;
+                        newRow[MasterColumnCatalogue.ItemCatalogueId.Name] = dbItem.Id;
+                        newRow[MasterColumnCatalogue.Model.Name] = dbItem.Model ?? (object)DBNull.Value;
+                    }
+                    else
+                    {
+                        return new Response<DataTable> { Success = false, Message = $"CASIN '{casin}' not found in database items." };
+                    }
+
+                    // Append Bulk Insert specific system fields required by the template
+                    newRow[MasterColumnCatalogue.POForecastMasterId.Name] = 0;
+                    newRow[MasterColumnCatalogue.CreatedById.Name] = loggedInUserId;
+                    newRow[MasterColumnCatalogue.CreatedAt.Name] = DateTime.Now;
 
                     processedTable.Rows.Add(newRow);
+                }
+
+                // 3. Append Missing Items with 0 Quantity
+                var missingCasins = allDbItems.Keys.Except(fileCasins, StringComparer.OrdinalIgnoreCase).ToList();
+
+                if (missingCasins.Any() && distinctSchedules.Any())
+                {
+                    foreach (var missingCasin in missingCasins)
+                    {
+                        var dbItem = allDbItems[missingCasin];
+
+                        foreach (var schedule in distinctSchedules)
+                        {
+                            var newRow = processedTable.NewRow();
+
+                            newRow[MasterColumnCatalogue.Casin.Name] = missingCasin;
+                            newRow[MasterColumnCatalogue.RequestedQuantity.Name] = "0";
+                            newRow[MasterColumnCatalogue.CommitmentPeriod.Name] = schedule.Period;
+                            newRow[MasterColumnCatalogue.PODate.Name] = schedule.PODate;
+                            newRow[MasterColumnCatalogue.MonthString.Name] = schedule.Month;
+                            newRow[MasterColumnCatalogue.Year.Name] = schedule.Year;
+
+                            // Ensure missing items also get critical DB & Audit fields
+                            newRow[MasterColumnCatalogue.ItemStatusInt.Name] = dbItem.ItemStatus;
+                            newRow[MasterColumnCatalogue.ItemCatalogueId.Name] = dbItem.Id;
+                            newRow[MasterColumnCatalogue.Model.Name] = dbItem.Model ?? (object)DBNull.Value;
+                            newRow[MasterColumnCatalogue.POForecastMasterId.Name] = 0;
+                            newRow[MasterColumnCatalogue.CreatedById.Name] = loggedInUserId;
+                            newRow[MasterColumnCatalogue.CreatedAt.Name] = DateTime.Now;
+
+                            processedTable.Rows.Add(newRow);
+                        }
+                    }
                 }
 
                 response.Success = true;
@@ -174,9 +302,10 @@ namespace WIPAT.Entities
                 response.Success = false;
                 response.Message = $"Error processing forecast table: {ex.Message}";
             }
+
             return response;
         }
-
+        
         // 3. UI Table -> DB Bulk Insert Table
         public Response<DataTable> CreateForecastBulkInsertTable(DataTable rawData, int masterId, Dictionary<string, (int Id, int ItemStatus, string Model)> catalogueLookup, int loggedinUserId)
         {
@@ -224,6 +353,9 @@ namespace WIPAT.Entities
             }
             return response;
         }
+
+        
+
         #endregion
 
         #region Order Related DataTables
@@ -262,7 +394,7 @@ namespace WIPAT.Entities
             return response;
         }
 
-        // 2. Raw Excel -> Processed UI Table
+        // 2. Raw Excel ->  DB Bulk Insert Table
         public Response<DataTable> CreateProcessedOrderDataTable(DataTable rawData, Dictionary<string, ItemCatalogue> allDbItems, int loggedInUserId)
         {
             var response = new Response<DataTable>();
@@ -767,6 +899,57 @@ namespace WIPAT.Entities
 
         #endregion error grid table
 
+        #region Edit Wip Related DataTables
+
+        public Response<DataTable> BuildProposedWipChangesTable(DataTable validatedTable, IEnumerable<WipDetail> currentWipData, out List<WipDetail> pendingUpdates)
+        {
+            var response = new Response<DataTable>();
+            pendingUpdates = new List<WipDetail>();
+
+            try
+            {
+                var table = new DataTable();
+                table.Columns.Add("CASIN", typeof(string));
+                table.Columns.Add("CurrentWip", typeof(int));
+                table.Columns.Add("ProposedWip", typeof(int));
+                table.Columns.Add("Delta", typeof(int));
+
+                var currentMap = currentWipData?.ToDictionary(x => x.CASIN, x => x.WipQuantity ?? 0, StringComparer.OrdinalIgnoreCase)
+                                 ?? new Dictionary<string, int>();
+
+                foreach (DataRow row in validatedTable.Rows)
+                {
+                    string casin = row[MasterColumnCatalogue.Casin.Name]?.ToString();
+                    string wipQtyStr = row[MasterColumnCatalogue.WipQuantity.Name]?.ToString();
+
+                    if (string.IsNullOrWhiteSpace(casin) || !int.TryParse(wipQtyStr, out int proposed))
+                        continue;
+
+                    // Stage the update for database commit
+                    pendingUpdates.Add(new WipDetail
+                    {
+                        CASIN = casin,
+                        UserWipQty = proposed
+                    });
+
+                    // Map row to UI preview table
+                    int current = currentMap.ContainsKey(casin) ? currentMap[casin] : 0;
+                    table.Rows.Add(casin, current, proposed, proposed - current);
+                }
+
+                response.Success = true;
+                response.Data = table;
+            }
+            catch (Exception ex)
+            {
+                response.Success = false;
+                response.Message = $"Error building proposed WIP changes table: {ex.Message}";
+            }
+
+            return response;
+        }
+
+        #endregion Edit Wip Related DataTables
         #region helpers 
 
         private Response<DataRow> MapColumnValues(string column, string cellValue, DataRow dr, int row, int loggedInUserId)

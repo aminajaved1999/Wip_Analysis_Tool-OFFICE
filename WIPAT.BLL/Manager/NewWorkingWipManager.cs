@@ -1120,6 +1120,126 @@ namespace WIPAT.BLL.Manager
             return response;
         }
 
+        public async Task<Response<bool>> ___SaveWipRecordsAsync(DataTable finalDataTable, string capacity, string wipColName, DataTable stockDataTable, WipSession wipSession)
+        {
+            var response = new Response<bool>();
+
+            try
+            {
+                // 1. Validation & Session Setup
+                var session = wipSession.Curr;
+                string fileName = session.FileName;
+                string wipType = wipSession.WipType;
+
+                var (targetMonthName, targetYear) = ParseTargetMonthAndYear(wipSession.TargetMonth);
+                if (targetYear == 0)
+                {
+                    return new Response<bool> { Success = false, Status = StatusType.Error, Message = "Invalid year format in targetMonth.", Data = false };
+                }
+
+                var (issuedMonthName, issuedYear) = ParseTargetMonthAndYear(wipSession.CurrentMonthWithYear);
+
+                // 2. Parse DataTable & Prepare Memory Objects
+                var newDetails = new List<WipDetail>(finalDataTable.Rows.Count);
+
+                int? GetInt(DataRow r, string col)
+                {
+                    if (finalDataTable.Columns.Contains(col) && r[col] != DBNull.Value && int.TryParse(r[col].ToString(), out int v))
+                        return v;
+                    return null;
+                }
+
+                int? globalMoq = finalDataTable.Rows.Count > 0 ? GetInt(finalDataTable.Rows[0], "MOQ") : null;
+                bool globalIsCasePack = finalDataTable.Columns.Contains("CasePack") && finalDataTable.AsEnumerable().Any(r => r["CasePack"] != DBNull.Value);
+
+                foreach (DataRow row in finalDataTable.Rows)
+                {
+                    string casin = row["CASIN"]?.ToString()?.Trim();
+                    string cPeriod = row[$"CommitmentPeriod ({session.Month})"]?.ToString()?.Trim();
+
+                    if (string.IsNullOrEmpty(casin) || string.IsNullOrEmpty(cPeriod)) continue;
+
+                    int? reviewWip = GetInt(row, "Review_Wip");
+                    int? moqWip = GetInt(row, "MOQ_Wip");
+                    int? cpWip = GetInt(row, "CasePack_Wip");
+                    double? grossReq = row["grossRequirement"] as double?;
+
+                    int itemStatus = (int)CatalogueItemStatus.Invalid;
+                    if (finalDataTable.Columns.Contains("ItemStatus") && row["ItemStatus"] != DBNull.Value)
+                    {
+                        if (int.TryParse(row["ItemStatus"].ToString(), out int parsedStatus)) itemStatus = parsedStatus;
+                    }
+
+                    int? finalWip;
+
+                    switch (wipColName)
+                    {
+                        case "CasePack_Wip":
+                            finalWip = cpWip;
+                            break;
+
+                        case "MOQ_Wip":
+                            finalWip = moqWip;
+                            break;
+
+                        case "Review_Wip":
+                            finalWip = reviewWip;
+                            break;
+
+                        default:
+                            finalWip = null;
+                            break;
+                    }
+
+                    newDetails.Add(new WipDetail
+                    {
+                        CASIN = casin,
+                        Month = row["Month"]?.ToString(),
+                        Year = row["Year"]?.ToString(),
+                        Stock = GetInt(row, "Stock"),
+                        CommitmentPeriod = cPeriod,
+                        WipQuantity = finalWip,
+                        SystemWip = finalWip,
+                        ItemStatus = itemStatus,
+                        LaymanFormula = wipType == WipType.LaymanFormula.ToString() ? finalWip : null,
+                        Layman = wipType == WipType.Layman.ToString() ? finalWip : null,
+                        Analyst = wipType == WipType.Analyst.ToString() ? finalWip : null,
+                        ForecastData = grossReq,
+                        Review_Wip = reviewWip,
+                        MOQ_Wip = moqWip,
+                        CasePack_Wip = cpWip,
+                        CasePack = GetInt(row, "CasePack"),
+                        PODate = DateTime.Now,
+                        CreatedAt = DateTime.Now,
+                        CreatedById = _session.LoggedInUser.Id
+                    });
+                }
+
+                var dedupedDetails = newDetails
+                    .GroupBy(x => x.CASIN + "|" + x.CommitmentPeriod)
+                    .Select(g => g.Last())
+                    .ToList();
+
+                // 3. Delegate to Repository
+                // Define a comprehensive DTO or pass the variables directly to the Repository method.
+                return await _wipRepository.SaveWipRecordsTransactionAsync(
+                    fileName, issuedMonthName, issuedYear, targetMonthName, targetYear,
+                    wipType, capacity, globalMoq, globalIsCasePack, _session.LoggedInUser.Id,
+                    dedupedDetails, stockDataTable, wipColName, session.Month, session.Year
+                );
+            }
+            catch (Exception ex)
+            {
+                return new Response<bool>
+                {
+                    Success = false,
+                    Data = false,
+                    Status = StatusType.Error,
+                    Message = ex.Message + (ex.InnerException != null ? " Inner: " + ex.InnerException.Message : "")
+                };
+            }
+        }
+
         private (string, int) ParseTargetMonthAndYear(string targetMonth)
         {
             string[] parts = targetMonth.Split(' ');

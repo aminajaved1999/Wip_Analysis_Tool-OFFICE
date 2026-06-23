@@ -1,23 +1,28 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WIPAT.BLL.Interfaces;
+using WIPAT.BLL.Services;
+using WIPAT.DAL;
 using WIPAT.DAL.Interfaces;
 using WIPAT.Entities;
 using WIPAT.Entities.Dto;
 using WIPAT.Entities.Enum;
-using WIPAT.Helpers;
 using WIPAT.Entities.ExcelTemplateDefinitions;
+using WIPAT.Helpers;
 
 namespace WIPAT
 {
     public partial class CalculatedWipsForm : Form
     {
         #region Fields & Enums
+        private readonly ExcelValidationService excelValidationService; 
+        private readonly IItemsRepository _itemsRepository; 
         private readonly IWipRepository _wipRepository;
         private readonly IExcelService _excelService;
         private readonly int _loggedInUserId;
@@ -33,7 +38,7 @@ namespace WIPAT
         #endregion
 
         #region Constructor & Initialization
-        public CalculatedWipsForm(IWipRepository wipRepository, IExcelService excelService, int loggedInUserId)
+        public CalculatedWipsForm(WipSession session, IWipRepository wipRepository, IExcelService excelService, int loggedInUserId, IItemsRepository itemsRepository)
         {
             InitializeComponent();
             ApplyTheme();
@@ -41,6 +46,8 @@ namespace WIPAT
             _wipRepository = wipRepository;
             _excelService = excelService;
             _loggedInUserId = loggedInUserId;
+            _itemsRepository = itemsRepository;
+            excelValidationService = new ExcelValidationService(session, _itemsRepository);
 
             UpdateUIState();
         }
@@ -270,30 +277,40 @@ namespace WIPAT
             SetStatus("Loading available periods...", StatusType.Warning);
             try
             {
-                var response = _wipRepository.GetForecastsWithCalculatedWip();
+                var response = _wipRepository.GetAvailableWipPeriods();
+
+                // 1. Always clear items before populating to ensure a clean state
+                cmbPeriods.Items.Clear();
+
                 if (response.Success && response.Data != null && response.Data.Any())
                 {
-                    cmbPeriods.Items.Clear();
-                    foreach (var f in response.Data.OrderByDescending(f => f.Year).ThenByDescending(f => GetMonthIndex(f.Month)).ThenByDescending(f => f.Month))
+                    // 2. Re-enable if data exists
+                    cmbPeriods.Enabled = true;
+
+                    foreach (var f in response.Data.OrderByDescending(f => f.IssuedYear).ThenByDescending(f => GetMonthIndex(f.IssuedMonth)))
                     {
-                        cmbPeriods.Items.Add(new { Text = $"{f.Month} {f.Year}", Month = f.Month, Year = f.Year });
+                        cmbPeriods.Items.Add(new { Text = $"{f.IssuedMonth} {f.IssuedYear}", Month = f.IssuedMonth, Year = f.IssuedYear });
                     }
+
                     cmbPeriods.DisplayMember = "Text";
                     cmbPeriods.ValueMember = "Text";
                     cmbPeriods.SelectedIndex = 0;
-                    SetStatus("Periods loaded.", StatusType.Success);
+
+                    SetStatus(response.Message, StatusType.Success);
                 }
                 else
                 {
-                    SetStatus("No WIP data available.", StatusType.Warning);
+                    // 3. Disable the control and clear text if no data is returned
+                    cmbPeriods.Enabled = false;
+                    cmbPeriods.Text = string.Empty;
+
+                    SetStatus(response.Message ?? "No periods available.", StatusType.Warning);
                 }
             }
             catch (Exception ex)
             {
-                string errorMsg = $"An unexpected error occurred while loading available periods: {ex.Message}"
-                                  + (ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}"
-                                  + (ex.InnerException.InnerException != null ? $" Inner Inner Exception: {ex.InnerException.InnerException.Message}" : "") : "");
-
+                // Keep your existing error handling here
+                string errorMsg = $"An unexpected error occurred while loading available periods: {ex.Message}";
                 SetStatus("Failed to load periods.", StatusType.Error);
                 MessageBox.Show(errorMsg, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -326,11 +343,11 @@ namespace WIPAT
                     BindGrid(_currentWipData);
                     _currentState = AppState.ViewingDB;
                     UpdateUIState();
-                    SetStatus("WIP details loaded successfully.", StatusType.Success);
+                    SetStatus(response.Message, StatusType.Success);
                 }
                 else
                 {
-                    SetStatus("Failed to load WIP details.", StatusType.Error);
+                    SetStatus(response.Message, StatusType.Error);
                 }
             }
             catch (Exception ex)
@@ -385,7 +402,7 @@ namespace WIPAT
                 string fileName = $"{periodLabel}_{DateTime.Now:yyyyMMdd}.xlsx";
                 string worksheetName = $"{periodLabel}-Wip";
 
-                _excelService.ExportWipDataToExcel(exportData, fileName, worksheetName);
+                excelValidationService.ExportWipDataToExcel(exportData, fileName, worksheetName);
                 SetStatus("Data exported successfully.", StatusType.Success);
             }
             catch (Exception ex)
@@ -399,7 +416,7 @@ namespace WIPAT
             }
         }
 
-        private void BtnPreviewExcelUpdate_Click(object sender, EventArgs e)
+        private async void BtnPreviewExcelUpdate_Click(object sender, EventArgs e)
         {
             try
             {
@@ -407,31 +424,64 @@ namespace WIPAT
                 {
                     if (ofd.ShowDialog() != DialogResult.OK) return;
 
-                    var parseResult = _excelService.ReadEditWipExcel(ofd.FileName);
-                    if (!parseResult.Success)
+                    SetStatus("Validating Excel file...", StatusType.Warning);
+
+                    // 1. Setup validation parameters
+                    var template = FileTemplateFactory.GetImportTemplate(ImportExcelFileType.EditWipFile);
+                    string requiredWorkSheetName = ConfigurationManager.AppSettings["WipWorksheetName"] ?? "Wip";
+
+                    // 2. Validate and Load using the new service
+                    var validationResponse = await excelValidationService.ValidateAndLoadExcelAsync(
+                        ofd.FileName,
+                        ImportExcelFileType.EditWipFile,
+                        requiredWorkSheetName,
+                        template
+                    );
+
+                    if (!validationResponse.Success)
                     {
-                        MessageBox.Show(parseResult.Message, "Invalid File", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        string errorMsg = validationResponse.Message;
+                        if (validationResponse.MissingItems != null && validationResponse.MissingItems.Any())
+                        {
+                            errorMsg += "\n\nDetails:\n" + string.Join("\n", validationResponse.MissingItems.Take(10));
+                            if (validationResponse.MissingItems.Count > 10) errorMsg += "\n... (and more)";
+                        }
+
+                        MessageBox.Show(errorMsg, "Validation Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        SetStatus("Excel validation failed.", StatusType.Error);
                         return;
                     }
 
-                    _pendingUpdates = parseResult.Data;
-                    if (_pendingUpdates == null || _pendingUpdates.Count == 0) return;
+                    var validatedTable = validationResponse.Data.ValidatedData;
 
-                    var table = new DataTable();
-                    table.Columns.Add("CASIN", typeof(string));
-                    table.Columns.Add("CurrentWip", typeof(int));
-                    table.Columns.Add("ProposedWip", typeof(int));
-                    table.Columns.Add("Delta", typeof(int));
-
-                    var currentMap = _currentWipData.ToDictionary(x => x.CASIN, x => x.WipQuantity ?? 0, StringComparer.OrdinalIgnoreCase);
-
-                    foreach (var update in _pendingUpdates)
+                    if (validatedTable == null || validatedTable.Rows.Count == 0)
                     {
-                        int current = currentMap.ContainsKey(update.CASIN) ? currentMap[update.CASIN] : 0;
-                        int proposed = update.UserWipQty ?? 0;
-                        table.Rows.Add(update.CASIN, current, proposed, proposed - current);
+                        MessageBox.Show("The uploaded Excel file contains no valid data.", "Empty File", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        SetStatus("Excel validation failed: Empty file.", StatusType.Warning);
+                        return;
                     }
 
+                    // 3. Process the validated Data Table via DataTableFactory
+                    var factoryResponse = new DataTableFactory().BuildProposedWipChangesTable(validatedTable, _currentWipData, out List<WipDetail> extractedUpdates);
+
+                    if (!factoryResponse.Success)
+                    {
+                        MessageBox.Show(factoryResponse.Message, "Error Processing Data", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        SetStatus("Failed to process Excel data.", StatusType.Error);
+                        return;
+                    }
+
+                    _pendingUpdates = extractedUpdates;
+                    var table = factoryResponse.Data;
+
+                    if (_pendingUpdates.Count == 0)
+                    {
+                        MessageBox.Show("Could not extract any valid updates from the file.", "No Updates Found", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        SetStatus("No valid updates found.", StatusType.Warning);
+                        return;
+                    }
+
+                    // 4. Update UI
                     dgvWipDetails.DataSource = table;
                     _currentState = AppState.PreviewingUpdate;
                     UpdateUIState();

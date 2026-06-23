@@ -477,7 +477,7 @@ namespace WIPAT
                 var currFile = _session.ForecastFiles.FirstOrDefault(f => f.ProjectionMonth == _session.CurrentMonth);
                 if (currFile == null) return;
 
-                DataTable currentGridDataTable = currFile.FullTable;
+                DataTable currentGridDataTable = currFile.ForecastCompleteTable;
                 DataTable newSourceTableForWipValues = _session.FinalDataTable;
                 DataTable updatedTable = currentGridDataTable.Clone();
 
@@ -552,7 +552,7 @@ namespace WIPAT
                         if (colName == "CASIN")
                         {
                             var val = e.Value.ToString();
-                            e.CellStyle.BackColor = GenerateColorFromString(val);
+                            e.CellStyle.BackColor = UITheme.GenerateColorFromString(val);
                         }
                     };
 
@@ -693,11 +693,6 @@ namespace WIPAT
             }
         }
 
-        private Color GenerateColorFromString(string input)
-        {
-            int hash = Math.Abs(input.GetHashCode());
-            return Color.FromArgb((hash % 50) + 200, ((hash / 256) % 50) + 200, ((hash / 65536) % 50) + 200);
-        }
         #endregion
     }
 }

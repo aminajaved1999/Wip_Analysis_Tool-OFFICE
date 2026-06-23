@@ -214,7 +214,11 @@ namespace WIPAT.Forms
                     }
                     else
                     {
-                        ShowErrors(response.MissingItems ?? new List<string> { response.Message });
+                        var errorsToDisplay = response.MissingItems != null && response.MissingItems.Count > 0
+                                            ? response.MissingItems
+                                            : (!string.IsNullOrWhiteSpace(response.Message) ? new List<string> { response.Message } : new List<string>());
+
+                        ShowErrors(errorsToDisplay);
                     }
                 }
             }
@@ -305,17 +309,27 @@ namespace WIPAT.Forms
 
         private void ShowErrors(List<string> errors)
         {
-            SetStatus($"Validation Failed: Found {errors.Count} errors.", StatusType.Error);
+            // FIX: Filter out null/empty strings to prevent blank popups
+            var validErrors = errors?.Where(e => !string.IsNullOrWhiteSpace(e)).ToList() ?? new List<string>();
+
+            if (validErrors.Count == 0)
+            {
+                SetStatus("Validation Failed.", StatusType.Error);
+                dataGridView.Visible = false;
+                return; // Exit completely to prevent the empty MessageBox
+            }
+
+            SetStatus($"Validation Failed: Found {validErrors.Count} errors.", StatusType.Error);
             dataGridView.Visible = false; // Hide main grid
 
             int displayLimit = 15;
-            var errorsToDisplay = errors.Take(displayLimit).ToList();
+            var errorsToDisplay = validErrors.Take(displayLimit).ToList();
 
             string errorMessage = string.Join(Environment.NewLine, errorsToDisplay);
 
-            if (errors.Count > displayLimit)
+            if (validErrors.Count > displayLimit)
             {
-                errorMessage += $"{Environment.NewLine}{Environment.NewLine}... and {errors.Count - displayLimit} more error(s).";
+                errorMessage += $"{Environment.NewLine}{Environment.NewLine}... and {validErrors.Count - displayLimit} more error(s).";
             }
 
             MessageBox.Show(errorMessage, "Validation Errors", MessageBoxButtons.OK, MessageBoxIcon.Error);
